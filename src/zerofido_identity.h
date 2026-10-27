@@ -46,6 +46,8 @@ void zf_identity_defaults(ZfIdentity *identity);
 void zf_identity_original(ZfIdentity *identity);
 void zf_identity_load(Storage *storage, ZfIdentity *identity);
 bool zf_identity_save(Storage *storage, const ZfIdentity *identity);
+/* Activate only after all transport workers have stopped. */
+bool zf_identity_activate(const ZfIdentity *identity);
 void zf_identity_load_active(Storage *storage);
 const ZfIdentity *zf_identity_active(void);
 bool zf_identity_set_text(ZfIdentity *identity, ZfIdentityField field, const char *text);

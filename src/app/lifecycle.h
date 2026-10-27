@@ -32,6 +32,15 @@ bool zf_app_lifecycle_startup(ZerofidoApp *app);
 bool zf_app_lifecycle_startup_async(ZerofidoApp *app);
 void zf_app_lifecycle_wait_startup(ZerofidoApp *app);
 bool zf_app_lifecycle_startup_pending(ZerofidoApp *app);
+typedef enum {
+    ZfIdentityApplyOk = 0,
+    ZfIdentityApplyBusy,
+    ZfIdentityApplySaveFailed,
+    ZfIdentityApplyRestartFailed,
+} ZfIdentityApplyResult;
+
+ZfIdentityApplyResult zf_app_lifecycle_set_identity(ZerofidoApp *app, Storage *storage,
+                                                    const ZfIdentity *identity);
 bool zf_app_lifecycle_restart_transport(ZerofidoApp *app);
 bool zf_app_lifecycle_set_transport_mode(ZerofidoApp *app, Storage *storage, ZfTransportMode mode);
 void zf_app_lifecycle_shutdown(ZerofidoApp *app);

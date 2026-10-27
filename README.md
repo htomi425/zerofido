@@ -25,9 +25,12 @@ pull requests are welcome.
 This version appears as **ZeroFIDO Custom** in the Flipper app launcher.
 
 Settings supports editing USB VID, USB PID, AAGUID, manufacturer and product name.
-Values are saved to `apps_data/zerofido/identity.bin` and take effect together after
-closing and reopening the app. The active USB descriptors and AAGUID stay unchanged
-while editing. A save failure leaves the previous identity in place.
+Values are saved to `apps_data/zerofido/identity.bin` and applied together after each
+successful edit: the app stops its transport worker, updates the USB descriptors and
+AAGUID, clears transient authorization state, and reconnects USB/NFC automatically.
+An active request blocks changes. A save failure leaves the current connection and
+identity intact; a reconnect failure asks you to reopen the app. Unchanged values
+do not cause a disconnect.
 
 - VID/PID: four hexadecimal digits, optionally prefixed with `0x`, from `0001` to `fffe`.
 - AAGUID: a standard UUID such as `2fc0579f-8113-47ea-b116-bb5a8db9202a`.
@@ -41,7 +44,7 @@ while editing. A save failure leaves the previous identity in place.
 These settings change USB identification and FIDO identity claims, not the hardware
 or supported USB interfaces. In particular, choosing a composite device PID does not
 add OTP or CCID interfaces. Packed attestation remains local software attestation;
-this fork does not contain genuine Yubico certificates or keys. When packed attestation is next used after restart, local
+this fork does not contain genuine Yubico certificates or keys. When packed attestation is next used after a change, local
 attestation certificates with a different AAGUID are regenerated to match the selected
 identity. Existing credentials are retained. Changing identity may affect relying-party
 policy checks. Export certification metadata for the selected identity when needed.
@@ -63,10 +66,20 @@ identity field matches a preset. History is descriptive and does not select the
 active USB/FIDO identity when signing in.
 
 Previously created passkeys show **Not recorded** because their original settings
-cannot be recovered reliably. Saving settings for the next restart does not change
-the identity captured by registrations in the current session. Existing history is
+cannot be recovered reliably. New registrations capture the identity actually applied to the running transport.
+Existing history is
 preserved across settings changes and credential counter updates. The optional
 history field is stored with the credential, so deletion removes it as well.
+
+### Diagnosing USB authentication
+
+For a USB request that stops after PIN consent, build with
+`ZEROFIDO_PROFILE=full ZEROFIDO_DEV_FIDO2_1=1 ZEROFIDO_USB_DIAGNOSTICS=1`.
+This app is labelled **ZeroFIDO Custom Debug**. Reproduce once, close the app, and
+copy `apps_data/zerofido/usb_diag.log` from the SD card before launching it again
+(startup clears the log). The log records command/status, permission flags and
+USB transmit progress; it does not record PINs, tokens, authentication parameters
+or private keys. Return to a normal build after diagnosis.
 
 ### Adding identity presets
 

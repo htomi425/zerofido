@@ -1126,6 +1126,10 @@ void furi_semaphore_free(FuriSemaphore *semaphore) {
     free(semaphore);
 }
 
+void furi_delay_ms(uint32_t milliseconds) {
+    g_fake_tick += milliseconds;
+}
+
 uint32_t furi_get_tick(void) {
     return g_fake_tick;
 }
@@ -1441,6 +1445,7 @@ static bool test_zf_record_decode(const uint8_t *data, size_t data_size, const c
 
 int main(void) {
     test_command_scratch_is_allocated_lifetime_and_single_owner();
+    test_identity_apply_reconnects_and_clears_session_secrets();
     test_record_decode_rejects_partial_record();
     test_record_decode_accepts_complete_record();
     test_record_registration_identity_survives_rewrites();
@@ -1517,6 +1522,7 @@ int main(void) {
     test_get_key_agreement_does_not_rotate_runtime_secrets();
     test_get_pin_token_success_rotates_pin_token();
     test_get_pin_token_experimental_2_1_requires_consent();
+    test_pin_consent_token_then_get_assertion();
     test_get_pin_token_protocol2_returns_iv_prefixed_token();
     test_client_pin_protocol2_requires_experimental_profile();
     test_get_pin_token_decrypt_failure_consumes_retry();

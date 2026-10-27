@@ -25,23 +25,6 @@
 #include "../internal.h"
 
 #if ZF_USB_DIAGNOSTICS
-static void zf_pin_usb_diag_hex(Storage *storage, const char *label, const uint8_t *data,
-                                size_t len) {
-    static const char hex_digits[] = "0123456789abcdef";
-    char hex[65];
-    size_t capped = len <= 32U ? len : 32U;
-
-    if (!label || !data) {
-        return;
-    }
-    for (size_t i = 0; i < capped; ++i) {
-        hex[i * 2U] = hex_digits[data[i] >> 4U];
-        hex[i * 2U + 1U] = hex_digits[data[i] & 0x0FU];
-    }
-    hex[capped * 2U] = '\0';
-    zf_usb_diag_logf(storage, "pin auth %s len=%u %s", label, (unsigned)len, hex);
-}
-
 static void zf_pin_usb_diag_status(Storage *storage, const char *stage, uint8_t status) {
     if (!stage) {
         return;
@@ -225,11 +208,6 @@ uint8_t zerofido_pin_require_auth(Storage *storage, ZfClientPinState *state, boo
 #endif
             return ZF_CTAP_ERR_OTHER;
         }
-#if ZF_USB_DIAGNOSTICS
-        zf_pin_usb_diag_hex(storage, "cdh", client_data_hash, ZF_CLIENT_DATA_HASH_LEN);
-        zf_pin_usb_diag_hex(storage, "got", pin_auth, pin_auth_len);
-        zf_pin_usb_diag_hex(storage, "exp", expected, zf_pin_uv_auth_param_len(pin_protocol));
-#endif
         if (!zf_crypto_constant_time_equal(expected, pin_auth,
                                            zf_pin_uv_auth_param_len(pin_protocol))) {
 #if ZF_USB_DIAGNOSTICS

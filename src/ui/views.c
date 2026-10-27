@@ -834,9 +834,16 @@ static bool zerofido_identity_validator(const char *text, FuriString *error, voi
 }
 
 static void zerofido_identity_save_result(ZerofidoApp *app, const ZfIdentity *identity) {
-    bool saved = zf_identity_save(app->storage, identity);
-    zerofido_ui_set_status(app, saved ? "Identity saved. Restart app" : "Identity save failed");
-    if (!saved)
+    ZfIdentityApplyResult result = zf_app_lifecycle_set_identity(app, app->storage, identity);
+    const char *message = "Identity applied";
+    if (result == ZfIdentityApplyBusy)
+        message = "Finish the active request first";
+    else if (result == ZfIdentityApplySaveFailed)
+        message = "Identity save failed";
+    else if (result == ZfIdentityApplyRestartFailed)
+        message = "Saved. Reopen app to reconnect";
+    zerofido_ui_set_status(app, message);
+    if (result != ZfIdentityApplyOk)
         zerofido_notify_error(app);
     zerofido_refresh_settings_menu(app);
     zerofido_ui_refresh_status_line(app);

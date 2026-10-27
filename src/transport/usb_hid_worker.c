@@ -32,6 +32,7 @@
 #include "../zerofido_identity.h"
 #include "../zerofido_notify.h"
 #include "../zerofido_telemetry.h"
+#include "../zerofido_usb_diagnostics.h"
 #include "../zerofido_ui.h"
 #include "../zerofido_ui_i.h"
 
@@ -353,8 +354,15 @@ void zf_transport_usb_hid_send_dispatch_result(ZerofidoApp *app,
         return;
     }
 
+#if ZF_USB_DIAGNOSTICS
+    zf_usb_diag_logf(app->storage, "usb tx cmd=%02X bytes=%u connected=%u", response_command,
+                     (unsigned)result->response_len, furi_hal_hid_u2f_is_connected() ? 1U : 0U);
+#endif
     zf_transport_session_send_frames(request->session_id, response_command, result->response,
                                      result->response_len);
+#if ZF_USB_DIAGNOSTICS
+    zf_usb_diag_log(app->storage, "usb tx complete");
+#endif
     zf_app_transport_arena_wipe(app);
 }
 

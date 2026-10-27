@@ -876,3 +876,54 @@ static void test_store_wipe_app_data_clears_credentials_and_pin_state(void) {
     expect(zerofido_pin_init(&storage, &restored), "re-init PIN state after app-data wipe");
     expect(!restored.pin_set, "PIN should be cleared after app-data wipe");
 }
+
+static void test_pin_consent_token_then_get_assertion(void) {
+    Storage storage = {0};
+    ZerofidoApp app = {0};
+    ZfCredentialIndexEntry records[ZF_MAX_CREDENTIALS] = {0}, entry = {0};
+    FuriMutex mutex = {0};
+    uint8_t pin_request[256], token_response[128], request[256], response[512], pin_auth[32];
+    const uint8_t *token = NULL;
+    size_t token_len = 0, response_len = 0;
+    static const uint8_t client_data_hash[32] = {
+        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b,
+        0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
+        0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40,
+    };
+    test_storage_reset();
+    app.storage = &storage;
+    app.ui_mutex = &mutex;
+    app.store.records = records;
+    expect(zerofido_pin_init(&storage, &app.pin_state), "initialize consent-to-assertion flow");
+    expect(zerofido_pin_set_plaintext(&storage, &app.pin_state, "1234") == ZF_CTAP_SUCCESS,
+           "set test PIN");
+    test_enable_fido2_1_experimental(&app);
+    seed_assertion_queue_record(&entry, 0xab, 4);
+    strcpy(entry.rp_id, "example.com");
+    records[0] = entry;
+    app.store.count = 1;
+    expect(zerofido_pin_handle_command(
+               &app, pin_request,
+               encode_client_pin_request_with_permissions(pin_request, sizeof(pin_request), 0x09,
+                                                          app.pin_state.pin_hash, true,
+                                                          ZF_PIN_PERMISSION_GA, "example.com"),
+               token_response, sizeof(token_response), &response_len) == ZF_CTAP_SUCCESS,
+           "PIN consent must issue a getAssertion-scoped token");
+    expect(parse_pin_token_response(token_response, response_len, &token, &token_len) &&
+               token_len == ZF_PIN_TOKEN_LEN,
+           "client must receive the PIN token");
+    /* The harness uses identity AES; derive auth from returned bytes, not private state. */
+    expect(zf_crypto_hmac_sha256(token, token_len, client_data_hash, sizeof(client_data_hash),
+                                 pin_auth),
+           "derive browser authorization from the returned token");
+    size_t size = encode_get_assertion_ctap_request_with_pin_auth(
+        request, sizeof(request), false, false, true, pin_auth, ZF_PIN_AUTH_LEN, true);
+    response_len =
+        zerofido_handle_ctap2(&app, 0x01020304, request, size, response, sizeof(response));
+    expect(response_len > 1 && response[0] == ZF_CTAP_SUCCESS,
+           "GetAssertion after PIN consent must produce a signed assertion");
+    expect(g_approval_request_count == 2,
+           "PIN consent must be followed by authentication approval");
+    expect(!app.maintenance_busy && !app.command_scratch_in_use,
+           "the completed flow must release command ownership");
+}

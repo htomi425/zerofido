@@ -212,9 +212,18 @@ bool zf_identity_save(Storage *storage, const ZfIdentity *identity) {
                                         sizeof(record));
 }
 
-void zf_identity_load_active(Storage *storage) {
-    zf_identity_load(storage, &zf_active_identity);
+bool zf_identity_activate(const ZfIdentity *identity) {
+    if (!zf_identity_valid(identity))
+        return false;
+    zf_active_identity = *identity;
     zf_active_identity_ready = true;
+    return true;
+}
+
+void zf_identity_load_active(Storage *storage) {
+    ZfIdentity identity;
+    zf_identity_load(storage, &identity);
+    zf_identity_activate(&identity);
 }
 
 const ZfIdentity *zf_identity_active(void) {

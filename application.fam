@@ -92,7 +92,7 @@ if not usb_diagnostics:
 
 App(
     appid="zerofido",
-    name="ZeroFIDO Custom",
+    name="ZeroFIDO Custom Debug" if usb_diagnostics else "ZeroFIDO Custom",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="zerofido_main",
     stack_size=4 * 1024,
