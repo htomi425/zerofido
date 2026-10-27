@@ -166,6 +166,7 @@ uint8_t zf_ctap_handle_make_credential(ZerofidoApp *app, ZfTransportSessionId se
         status = ZF_CTAP_ERR_INVALID_PARAMETER;
         goto cleanup;
     }
+    zf_identity_snapshot_active(&scratch->record.registration_identity);
     ZF_CTAP_MC_DIAG("prepared");
     if (scratch->request.has_cred_protect) {
         scratch->record.cred_protect = scratch->request.cred_protect;

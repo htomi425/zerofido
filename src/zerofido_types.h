@@ -21,6 +21,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "zerofido_identity.h"
+
 #define ZF_AAGUID_LEN 16
 #define ZF_APP_ID "zerofido"
 #define ZF_APP_DATA_ROOT "/ext/apps_data"
@@ -210,6 +212,7 @@ typedef struct {
     bool hmac_secret;
     uint8_t hmac_secret_without_uv[ZF_HMAC_SECRET_LEN];
     uint8_t hmac_secret_with_uv[ZF_HMAC_SECRET_LEN];
+    ZfRegistrationIdentity registration_identity;
 } ZfCredentialRecord;
 
 typedef struct {

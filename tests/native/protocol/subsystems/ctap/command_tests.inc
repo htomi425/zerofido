@@ -1529,6 +1529,12 @@ static void test_make_credential_hmac_secret_round_trips_into_auth_data_and_stor
                                                    &stored_record),
            "resident hmac-secret credential should load from storage");
     expect(stored_record.hmac_secret, "stored credential should carry hmac-secret material");
+    ZfRegistrationIdentity expected_identity;
+    zf_identity_snapshot_active(&expected_identity);
+    expect(stored_record.registration_identity.known &&
+               memcmp(&stored_record.registration_identity, &expected_identity,
+                      sizeof(expected_identity)) == 0,
+           "makeCredential must persist the active registration identity");
 }
 
 static void test_get_assertion_hmac_secret_builds_protocol1_output(void) {

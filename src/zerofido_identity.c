@@ -222,3 +222,25 @@ const ZfIdentity *zf_identity_active(void) {
         zf_identity_load_active(NULL);
     return &zf_active_identity;
 }
+
+void zf_identity_snapshot_active(ZfRegistrationIdentity *snapshot) {
+    const ZfIdentity *active = zf_identity_active();
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->known = true;
+    snapshot->vid = active->vid;
+    snapshot->pid = active->pid;
+    memcpy(snapshot->aaguid, active->aaguid, sizeof(snapshot->aaguid));
+    const char *name = "Custom";
+    for (size_t i = 0; i < zf_identity_preset_count(); ++i) {
+        ZfIdentity preset;
+        if (zf_identity_preset_apply(i, &preset) && active->vid == preset.vid &&
+            active->pid == preset.pid &&
+            memcmp(active->aaguid, preset.aaguid, sizeof(preset.aaguid)) == 0 &&
+            strcmp(active->manufacturer, preset.manufacturer) == 0 &&
+            strcmp(active->product, preset.product) == 0) {
+            name = zf_identity_preset_name(i);
+            break;
+        }
+    }
+    snprintf(snapshot->preset, sizeof(snapshot->preset), "%s", name);
+}

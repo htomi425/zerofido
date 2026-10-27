@@ -53,6 +53,21 @@ On the device, set a PIN, then select the experimental FIDO2 2.1 profile in Sett
 The default runtime profile remains CTAP2.0. CLI builds still require the explicit
 `ZEROFIDO_DEV_FIDO2_1=1` flag to include 2.1 support.
 
+### Registration history
+
+New passkeys keep a snapshot of the identity active at registration: preset name,
+USB VID/PID and AAGUID. Open a passkey's details and press **More** to view the
+**Registered as** page. The AAGUID scrolls horizontally; **Info** or **Back** returns
+to the first page. A manually edited identity is labelled **Custom** unless every
+identity field matches a preset. History is descriptive and does not select the
+active USB/FIDO identity when signing in.
+
+Previously created passkeys show **Not recorded** because their original settings
+cannot be recovered reliably. Saving settings for the next restart does not change
+the identity captured by registrations in the current session. Existing history is
+preserved across settings changes and credential counter updates. The optional
+history field is stored with the credential, so deletion removes it as well.
+
 ### Adding identity presets
 
 Add an entry to [`src/identity_presets.inc`](src/identity_presets.inc) and rebuild.

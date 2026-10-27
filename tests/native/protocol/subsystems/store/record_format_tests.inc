@@ -234,6 +234,8 @@ static void test_record_decode_accepts_complete_record(void) {
 
     expect(test_zf_record_decode(buffer, size, k_repeated_credential_file_name, &record),
            "complete record should decode");
+    expect(!record.registration_identity.known,
+           "legacy records must not invent registration identity");
     expect(record.in_use, "decoded record should be marked in use");
     expect(record.resident_key, "decoded record should preserve resident key");
     expect(strcmp(record.rp_id, "example.com") == 0, "decoded rp id");
@@ -480,4 +482,62 @@ static void test_store_init_ignores_unsupported_record_file(void) {
            "store init should succeed with unsupported-version record present");
     expect(store.count == 0, "store init should ignore unsupported-version record files");
     expect(slot->exists, "store init should not rewrite unsupported-version record files");
+}
+
+static void test_record_registration_identity_survives_rewrites(void) {
+    uint8_t buffer[ZF_STORE_RECORD_MAX_SIZE];
+    ZfCredentialRecord record, decoded;
+    size_t size = 0;
+    fill_large_resident_hmac_secret_record(&record);
+    ZfRegistrationIdentity *registered = &record.registration_identity;
+    registered->known = true;
+    memset(registered->preset, 'P', sizeof(registered->preset) - 1U);
+    registered->vid = 0xfffe;
+    registered->pid = 0xfffe;
+    memset(registered->aaguid, 0x71, sizeof(registered->aaguid));
+    expect(zf_store_record_format_encode(&record, buffer, &size),
+           "maximum record plus registration identity must fit the store buffer");
+    expect(test_zf_record_decode(buffer, size, record.file_name, &decoded),
+           "registration identity should decode with a complete credential");
+    expect(memcmp(registered, &decoded.registration_identity, sizeof(*registered)) == 0,
+           "historical registration identity must round-trip exactly");
+    decoded.sign_count = 42;
+    expect(zf_store_record_format_encode(&decoded, buffer, &size), "rewrite credential counter");
+    expect(test_zf_record_decode(buffer, size, record.file_name, &decoded),
+           "read rewritten credential");
+    expect(memcmp(registered, &decoded.registration_identity, sizeof(*registered)) == 0,
+           "record updates must preserve historical identity");
+    /* Optional history remains absent when an old credential is rewritten. */
+    decoded.registration_identity.known = false;
+    expect(zf_store_record_format_encode(&decoded, buffer, &size), "write legacy credential");
+    expect(test_zf_record_decode(buffer, size, record.file_name, &decoded),
+           "read legacy credential");
+    expect(!decoded.registration_identity.known, "old records must remain unknown after rewriting");
+}
+
+static void test_record_registration_identity_rejects_malformed_metadata(void) {
+    uint8_t buffer[ZF_STORE_RECORD_MAX_SIZE];
+    ZfCborEncoder enc;
+    ZfCborCursor cursor;
+    ZfRegistrationIdentity registered = {0};
+    expect(zf_cbor_encoder_init(&enc, buffer, sizeof(buffer)) && zf_cbor_encode_array(&enc, 4) &&
+               zf_cbor_encode_text(&enc, "YubiKey") && zf_cbor_encode_uint(&enc, 0x1050) &&
+               zf_cbor_encode_uint(&enc, 0x0407) &&
+               zf_cbor_encode_bytes(&enc, (const uint8_t[16]){0}, 16),
+           "encode valid historical identity");
+    zf_cbor_cursor_init(&cursor, buffer, zf_cbor_encoder_size(&enc));
+    expect(zf_record_decode_registration_identity(&cursor, &registered),
+           "decode historical identity");
+    zf_cbor_cursor_init(&cursor, buffer, zf_cbor_encoder_size(&enc));
+    expect(!zf_record_decode_registration_identity(&cursor, &registered),
+           "reject duplicate historical identity");
+    memset(&registered, 0, sizeof(registered));
+    expect(zf_cbor_encoder_init(&enc, buffer, sizeof(buffer)) && zf_cbor_encode_array(&enc, 4) &&
+               zf_cbor_encode_text(&enc, "Bad") && zf_cbor_encode_uint(&enc, 0x11050) &&
+               zf_cbor_encode_uint(&enc, 0x0407) &&
+               zf_cbor_encode_bytes(&enc, (const uint8_t[16]){0}, 16),
+           "encode invalid historical identity");
+    zf_cbor_cursor_init(&cursor, buffer, zf_cbor_encoder_size(&enc));
+    expect(!zf_record_decode_registration_identity(&cursor, &registered),
+           "reject oversized USB ID");
 }

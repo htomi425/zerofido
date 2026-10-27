@@ -160,6 +160,28 @@ int main(void) {
     assert(!zf_identity_preset_apply(SIZE_MAX, &identity));
     assert(!zf_identity_preset_apply(0, NULL));
     assert(memcmp(&before, &identity, sizeof(identity)) == 0);
+    /* Capture the active identity, not pending preferences, and keep history independent. */
+    ZfRegistrationIdentity registered, pending, custom;
+    zf_identity_defaults(&identity);
+    assert(zf_identity_save(storage, &identity));
+    zf_identity_load_active(storage);
+    zf_identity_snapshot_active(&registered);
+    assert(registered.known && strcmp(registered.preset, "ZeroFIDO") == 0);
+    assert(registered.vid == 0x0483 && registered.pid == 0x5741);
+    use_yubikey(&identity);
+    assert(zf_identity_save(storage, &identity));
+    zf_identity_snapshot_active(&pending);
+    assert(memcmp(&registered, &pending, sizeof(registered)) == 0);
+    zf_identity_load_active(storage);
+    zf_identity_snapshot_active(&pending);
+    assert(strcmp(pending.preset, "YubiKey") == 0 && pending.vid == 0x1050);
+    assert(strcmp(registered.preset, "ZeroFIDO") == 0 && registered.vid == 0x0483);
+    assert(zf_identity_set_text(&identity, ZfIdentityFieldManufacturer, "My maker"));
+    assert(zf_identity_save(storage, &identity));
+    zf_identity_load_active(storage);
+    zf_identity_snapshot_active(&custom);
+    assert(strcmp(custom.preset, "Custom") == 0 && custom.vid == 0x1050);
+    assert(memcmp(custom.aaguid, identity.aaguid, sizeof(custom.aaguid)) == 0);
     puts("native identity regressions passed");
     return 0;
 }

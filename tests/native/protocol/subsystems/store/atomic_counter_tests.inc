@@ -76,7 +76,7 @@ static void test_store_cleanup_keeps_current_counter_when_backup_exists(void) {
     TestStorageFile *counter = NULL;
     TestStorageFile *backup = NULL;
     char counter_path[128];
-    char backup_path[128];
+    char backup_path[132];
 
     test_storage_reset();
     zf_store_build_counter_floor_path(k_repeated_credential_file_name, counter_path,
@@ -113,10 +113,10 @@ static void test_store_remove_record_paths_deletes_atomic_backups(void) {
     TestStorageFile *counter_backup = NULL;
     char record_path[128];
     char record_temp_path[128];
-    char record_backup_path[128];
+    char record_backup_path[132];
     char counter_path[128];
     char counter_temp_path[128];
-    char counter_backup_path[128];
+    char counter_backup_path[132];
 
     test_storage_reset();
     zf_store_build_record_path(k_repeated_credential_file_name, record_path, sizeof(record_path));

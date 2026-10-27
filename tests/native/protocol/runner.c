@@ -1360,6 +1360,7 @@ bool zf_u2f_adapter_is_available(const ZerofidoApp *app) {
 #include "../../../src/pin/command.c"
 #include "../../../src/zerofido_storage.c"
 #include "../../../src/zerofido_runtime_config.c"
+#include "../../../src/zerofido_identity.c"
 #include "../../../src/app/lifecycle.c"
 #include "../../../src/store/bootstrap.c"
 #include "../../../src/store/record_format.c"
@@ -1442,6 +1443,8 @@ int main(void) {
     test_command_scratch_is_allocated_lifetime_and_single_owner();
     test_record_decode_rejects_partial_record();
     test_record_decode_accepts_complete_record();
+    test_record_registration_identity_survives_rewrites();
+    test_record_registration_identity_rejects_malformed_metadata();
     test_record_encode_accepts_large_resident_record_with_hmac_secret();
     test_record_hmac_secret_storage_uses_wrapped_blob();
     test_record_decode_rejects_legacy_plaintext_hmac_secret_storage();

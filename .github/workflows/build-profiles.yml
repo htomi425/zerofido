@@ -55,6 +55,9 @@ jobs:
       - name: Check release build defaults
         run: uv run python -m unittest tests.app.test_application_manifest tests.app.test_identity
 
+      - name: Native protocol and storage regressions
+        run: uv run python tools/run_protocol_regressions.py
+
       - name: Build profile
         run: uv run python -m ufbt
 

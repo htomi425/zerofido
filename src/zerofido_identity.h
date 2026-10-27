@@ -26,6 +26,17 @@ typedef struct {
     char product[ZF_IDENTITY_NAME_SIZE];
 } ZfIdentity;
 
+/* Historical identity claim, captured once for a newly registered credential. */
+typedef struct {
+    bool known;
+    char preset[ZF_IDENTITY_NAME_SIZE];
+    uint16_t vid;
+    uint16_t pid;
+    uint8_t aaguid[ZF_IDENTITY_AAGUID_SIZE];
+} ZfRegistrationIdentity;
+
+void zf_identity_snapshot_active(ZfRegistrationIdentity *snapshot);
+
 /* Menu order comes from identity_presets.inc. Invalid indices leave output unchanged. */
 size_t zf_identity_preset_count(void);
 const char *zf_identity_preset_name(size_t index);
