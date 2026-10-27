@@ -72,15 +72,15 @@ static void test_pin_resume_auth_attempts_clears_persisted_block(void) {
     mark_pin_token_issued(&state);
 
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "first pinAuth mismatch should be invalid");
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "second pinAuth mismatch should be invalid");
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_BLOCKED,
            "third pinAuth mismatch should auth-block");
     expect(zerofido_pin_resume_auth_attempts(&storage, &state),
@@ -181,16 +181,16 @@ static void test_pin_auth_blocks_after_three_mismatches(void) {
     memset(pin_auth, 0x01, sizeof(pin_auth));
 
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "first pinAuth mismatch should be invalid");
     expect(!uv_verified, "uv flag should stay false after first pinAuth mismatch");
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "second pinAuth mismatch should be invalid");
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_BLOCKED,
            "third pinAuth mismatch should auth-block");
 }

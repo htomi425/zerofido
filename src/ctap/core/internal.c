@@ -55,7 +55,7 @@ uint8_t zf_ctap_require_pin_auth_with_state(ZerofidoApp *app, ZfClientPinState *
                                             const uint8_t *pin_auth, size_t pin_auth_len,
                                             bool has_pin_protocol, uint64_t pin_protocol,
                                             const char *rp_id, uint64_t required_permissions,
-                                            bool *uv_verified) {
+                                            bool up_requested, bool *uv_verified) {
     uint8_t status = ZF_CTAP_ERR_OTHER;
 
     if (!pin_state) {
@@ -71,7 +71,8 @@ uint8_t zf_ctap_require_pin_auth_with_state(ZerofidoApp *app, ZfClientPinState *
 
     status = zerofido_pin_require_auth(app->storage, pin_state, uv_requested, has_pin_auth,
                                        client_data_hash, pin_auth, pin_auth_len, has_pin_protocol,
-                                       pin_protocol, rp_id, required_permissions, uv_verified);
+                                       pin_protocol, rp_id, required_permissions, up_requested,
+                                       uv_verified);
 
     furi_mutex_acquire(app->ui_mutex, FuriWaitForever);
     app->pin_state = *pin_state;

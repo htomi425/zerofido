@@ -284,15 +284,15 @@ static void test_pin_auth_mismatch_keeps_block_state_when_persist_fails(void) {
 
     g_storage_fail_rename_match = "client_pin";
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "first pinAuth mismatch should stay invalid when persistence fails");
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "second pinAuth mismatch should stay invalid when persistence fails");
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_BLOCKED,
            "third pinAuth mismatch should still block when persistence fails");
     expect(state.pin_consecutive_mismatches == 3,
@@ -357,7 +357,7 @@ static void test_pin_persist_failure_poison_blocks_reinit_after_pin_auth_mismatc
 
     g_storage_fail_rename_match = "client_pin";
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     sizeof(pin_auth), true, 1, NULL, 0,
+                                     sizeof(pin_auth), true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "pinAuth mismatch should still report invalid under persistence failure");
     expect(!zerofido_pin_init(&storage, &restored),
@@ -405,7 +405,7 @@ static void test_correct_pin_auth_keeps_retry_state_when_persist_fails(void) {
 
     g_storage_fail_rename_match = "client_pin";
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     ZF_PIN_AUTH_LEN, true, 1, NULL, 0,
+                                     ZF_PIN_AUTH_LEN, true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_OTHER,
            "successful pinAuth should fail closed when clearing retry state cannot persist");
     expect(state.pin_consecutive_mismatches == 2,

@@ -78,4 +78,5 @@ uint8_t zerofido_pin_require_auth(Storage *storage, ZfClientPinState *state, boo
                                   const uint8_t client_data_hash[ZF_CLIENT_DATA_HASH_LEN],
                                   const uint8_t *pin_auth, size_t pin_auth_len,
                                   bool has_pin_protocol, uint64_t pin_protocol, const char *rp_id,
-                                  uint64_t required_permissions, bool *uv_verified);
+                                  uint64_t required_permissions, bool up_requested,
+                                  bool *uv_verified);

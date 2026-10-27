@@ -135,7 +135,8 @@ uint8_t zf_ctap_handle_make_credential(ZerofidoApp *app, ZfTransportSessionId se
         app, &scratch->pin_state, scratch->request.has_uv && scratch->request.uv,
         scratch->request.has_pin_auth, scratch->request.client_data_hash, scratch->request.pin_auth,
         scratch->request.pin_auth_len, scratch->request.has_pin_protocol,
-        scratch->request.pin_protocol, scratch->request.rp_id, ZF_PIN_PERMISSION_MC, &uv_verified);
+        scratch->request.pin_protocol, scratch->request.rp_id, ZF_PIN_PERMISSION_MC, true,
+        &uv_verified);
     if (status != ZF_CTAP_SUCCESS) {
         goto cleanup;
     }

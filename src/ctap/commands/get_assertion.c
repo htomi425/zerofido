@@ -33,6 +33,7 @@
 #include "../../zerofido_crypto.h"
 #include "../../zerofido_notify.h"
 #include "../../zerofido_store.h"
+#include "../../zerofido_usb_diagnostics.h"
 
 #if defined(ZF_RELEASE_DIAGNOSTICS) && ZF_RELEASE_DIAGNOSTICS
 #define ZF_CTAP_GA_DIAG(text) FURI_LOG_I("ZeroFIDO:CTAP", "GA %s", (text))
@@ -306,6 +307,11 @@ uint8_t zf_ctap_handle_get_assertion(ZerofidoApp *app, ZfTransportSessionId sess
         goto cleanup;
     }
     ZF_CTAP_GA_DIAG("parsed");
+#if ZF_USB_DIAGNOSTICS
+    zf_usb_diag_logf(app->storage, "ga options has_up=%u up=%u allow=%u", request->has_up ? 1U : 0U,
+                     !request->has_up || request->up ? 1U : 0U,
+                     (unsigned)request->allow_list.count);
+#endif
     status = zf_ctap_validate_pin_auth_protocol(request->has_pin_auth, request->has_pin_protocol,
                                                 request->pin_protocol,
                                                 app->capabilities.pin_uv_auth_protocol_2_enabled);
@@ -341,7 +347,7 @@ uint8_t zf_ctap_handle_get_assertion(ZerofidoApp *app, ZfTransportSessionId sess
         app, &scratch->pin_state, request->has_uv && request->uv, request->has_pin_auth,
         request->assertion.client_data_hash, request->pin_auth, request->pin_auth_len,
         request->has_pin_protocol, request->pin_protocol, request->assertion.rp_id,
-        ZF_PIN_PERMISSION_GA, &uv_verified);
+        ZF_PIN_PERMISSION_GA, !request->has_up || request->up, &uv_verified);
     if (status != ZF_CTAP_SUCCESS) {
         goto cleanup;
     }

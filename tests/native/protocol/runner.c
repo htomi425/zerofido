@@ -1523,6 +1523,7 @@ int main(void) {
     test_get_pin_token_success_rotates_pin_token();
     test_get_pin_token_experimental_2_1_requires_consent();
     test_pin_consent_token_then_get_assertion();
+    test_permission_token_silent_probe_then_touch();
     test_get_pin_token_protocol2_returns_iv_prefixed_token();
     test_client_pin_protocol2_requires_experimental_profile();
     test_get_pin_token_decrypt_failure_consumes_retry();

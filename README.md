@@ -71,6 +71,15 @@ Existing history is
 preserved across settings changes and credential counter updates. The optional
 history field is stored with the credential, so deletion removes it as well.
 
+### CTAP 2.1 browser credential probes
+
+A browser may send `GetAssertion` with `up=false` to check credentials, then send
+another request with user presence enabled. Silent probes still require valid
+PIN/UV authorization, permissions and RP scoping, but do not consume the token's
+MC/GA permissions. The following touch request consumes managed permissions as
+before. Regression tests cover this sequence with PIN protocols 1 and 2, including
+wrong-RP requests, forged authorization and replay after consumption.
+
 ### Diagnosing USB authentication
 
 For a USB request that stops after PIN consent, build with

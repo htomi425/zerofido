@@ -39,5 +39,5 @@ uint8_t zf_ctap_require_pin_auth_with_state(ZerofidoApp *app, ZfClientPinState *
                                             const uint8_t *pin_auth, size_t pin_auth_len,
                                             bool has_pin_protocol, uint64_t pin_protocol,
                                             const char *rp_id, uint64_t required_permissions,
-                                            bool *uv_verified);
+                                            bool up_requested, bool *uv_verified);
 uint8_t zf_ctap_dispatch_require_idle(ZerofidoApp *app);
