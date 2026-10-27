@@ -408,6 +408,12 @@ The packaged artifact lands at `dist/zerofido-release.fap` by default.
 
 ### GitHub Releases
 
+Release v0.8.1 includes configurable identity presets, registration identity
+history, passkey technical details, and the FIDO2.1 PIN-token probe fix. The FAP
+metadata format stores only major/minor versions, so its embedded version is 0.8.
+A rare startup OOM after repeated launches remains unresolved; rebooting restores
+operation.
+
 Both build workflows use Ubuntu 24.04 and the official Flipper Zero 1.5.1 f7 SDK
 (API 88.2). The SDK archive is verified against its pinned SHA-256 before
 installation. Build and Release both run the native protocol and storage
