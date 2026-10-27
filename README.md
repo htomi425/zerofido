@@ -22,6 +22,8 @@ pull requests are welcome.
 
 ## Custom identity settings (this fork)
 
+This version appears as **ZeroFIDO Custom** in the Flipper app launcher.
+
 Settings supports editing USB VID, USB PID, AAGUID, manufacturer and product name.
 Values are saved to `apps_data/zerofido/identity.bin` and take effect together after
 closing and reopening the app. The active USB descriptors and AAGUID stay unchanged
