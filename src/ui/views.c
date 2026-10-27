@@ -26,6 +26,7 @@
 #include "../transport/adapter.h"
 #include "../zerofido_app_i.h"
 #include "../zerofido_ctap.h"
+#include "../ctap/extensions/cred_protect.h"
 #include "../zerofido_notify.h"
 #include "../zerofido_store.h"
 #include "../zerofido_ui_i.h"
@@ -129,15 +130,27 @@ typedef struct {
     uint8_t store_io[ZF_STORE_RECORD_IO_SIZE];
 } ZfCredentialDisplayScratch;
 
+enum {
+    ZfCredentialPageInfo = 0,
+    ZfCredentialPageIdentity,
+    ZfCredentialPageCrypto,
+    ZfCredentialPageProtection,
+    ZfCredentialPageCount,
+};
+
 typedef struct {
     bool allow_delete;
+    bool credential_available;
     char website[ZF_MAX_RP_ID_LEN];
     char account[ZF_MAX_DISPLAY_NAME_LEN];
     char type[24];
-    bool identity_page;
+    uint8_t page;
     char registered_as[ZF_IDENTITY_NAME_SIZE];
     char registered_usb[10];
     char registered_aaguid[ZF_IDENTITY_TEXT_SIZE];
+    char counter[11];
+    char protection[32];
+    bool hmac_secret;
 } ZfCredentialDetailModel;
 
 _Static_assert(sizeof(ZfCredentialDisplayScratch) <= ZF_UI_SCRATCH_SIZE,
@@ -720,6 +733,22 @@ static void zerofido_fill_credential_detail_model(ZerofidoApp *app,
         user = "No account name";
     }
     type = scratch->record.resident_key ? "Discoverable (RK)" : "Saved passkey";
+    model->credential_available = true;
+    snprintf(model->counter, sizeof(model->counter), "%lu", (unsigned long)entry->sign_count);
+    const char *protection = "Unknown";
+    switch (zf_ctap_cred_protect_effective(scratch->record.cred_protect)) {
+    case ZF_CRED_PROTECT_UV_OPTIONAL:
+        protection = "1: UV optional";
+        break;
+    case ZF_CRED_PROTECT_UV_OPTIONAL_WITH_CRED_ID:
+        protection = "2: UV or allowList";
+        break;
+    case ZF_CRED_PROTECT_UV_REQUIRED:
+        protection = "3: UV required";
+        break;
+    }
+    zerofido_copy_label(model->protection, sizeof(model->protection), protection);
+    model->hmac_secret = scratch->record.hmac_secret;
 
     zerofido_copy_label(model->website, sizeof(model->website), website);
     zerofido_copy_label(model->account, sizeof(model->account), user);
@@ -1380,19 +1409,50 @@ static void zerofido_credential_detail_draw_callback(Canvas *canvas, void *model
     canvas_clear(canvas);
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str(canvas, 4, 9, detail->identity_page ? "Registered as" : "Passkey");
+    static const char *const titles[ZfCredentialPageCount] = {"Passkey", "Registered as",
+                                                              "Cryptography", "Protection"};
+    uint8_t page = detail->page < ZfCredentialPageCount ? detail->page : ZfCredentialPageInfo;
+    canvas_draw_str(canvas, 4, 9, titles[page]);
+    char page_label[8];
+    snprintf(page_label, sizeof(page_label), "%u/%u", (unsigned)page + 1U,
+             (unsigned)ZfCredentialPageCount);
+    canvas_draw_str_aligned(canvas, 124, 9, AlignRight, AlignBottom, page_label);
     canvas_draw_line(canvas, 0, 12, 127, 12);
 
     scroll_line = furi_string_alloc();
-    if (detail->identity_page) {
+    switch (page) {
+    case ZfCredentialPageIdentity:
         zerofido_credential_detail_draw_row(canvas, 21, "As", detail->registered_as, scroll_line);
         zerofido_credential_detail_draw_row(canvas, 34, "USB", detail->registered_usb, scroll_line);
         zerofido_credential_detail_draw_row(canvas, 47, "ID", detail->registered_aaguid,
                                             scroll_line);
-    } else {
+        break;
+    case ZfCredentialPageCrypto:
+        /* All supported credential records use the ES256 / P-256 signing implementation. */
+        zerofido_credential_detail_draw_row(
+            canvas, 21, "Alg", detail->credential_available ? "ES256 (-7)" : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 34, "Key", detail->credential_available ? "P-256 / 256 bit" : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 47, "Hash", detail->credential_available ? "SHA-256" : "-", scroll_line);
+        break;
+    case ZfCredentialPageProtection:
+        zerofido_credential_detail_draw_row(
+            canvas, 21, "Ctr", detail->credential_available ? detail->counter : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 34, "CP", detail->credential_available ? detail->protection : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 47, "HMAC",
+            !detail->credential_available ? "-"
+                                          : (detail->hmac_secret ? "Available" : "Unavailable"),
+            scroll_line);
+        break;
+    case ZfCredentialPageInfo:
+    default:
         zerofido_credential_detail_draw_row(canvas, 21, "Web", detail->website, scroll_line);
         zerofido_credential_detail_draw_row(canvas, 34, "Acct", detail->account, scroll_line);
         zerofido_credential_detail_draw_row(canvas, 47, "Type", detail->type, scroll_line);
+        break;
     }
     furi_string_free(scroll_line);
 
@@ -1401,7 +1461,7 @@ static void zerofido_credential_detail_draw_callback(Canvas *canvas, void *model
     if (detail->allow_delete) {
         elements_button_center(canvas, "Delete");
     }
-    elements_button_right(canvas, detail->identity_page ? "Info" : "More");
+    elements_button_right(canvas, page == ZfCredentialPageCount - 1U ? "Info" : "More");
 }
 
 static bool zerofido_credential_detail_input_callback(InputEvent *event, void *context) {
@@ -1416,7 +1476,7 @@ static bool zerofido_credential_detail_input_callback(InputEvent *event, void *c
     if (event->key == InputKeyRight) {
         with_view_model(
             app->credential_detail_view, ZfCredentialDetailModel * model,
-            { model->identity_page = !model->identity_page; }, true);
+            { model->page = (uint8_t)((model->page + 1U) % ZfCredentialPageCount); }, true);
         return true;
     }
 
@@ -1437,15 +1497,16 @@ static bool zerofido_credential_detail_input_callback(InputEvent *event, void *c
     }
 
     if (event->key == InputKeyLeft || event->key == InputKeyBack) {
-        bool identity_page = false;
+        bool previous_page = false;
         with_view_model(
             app->credential_detail_view, ZfCredentialDetailModel * model,
             {
-                identity_page = model->identity_page;
-                model->identity_page = false;
+                previous_page = model->page != ZfCredentialPageInfo;
+                if (previous_page)
+                    model->page--;
             },
             true);
-        if (identity_page)
+        if (previous_page)
             return true;
         zerofido_ui_refresh_status_line(app);
         zerofido_ui_switch_to_view(app, ZfViewStatus);

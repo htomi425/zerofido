@@ -60,9 +60,10 @@ The default runtime profile remains CTAP2.0. CLI builds still require the explic
 
 New passkeys keep a snapshot of the identity active at registration: preset name,
 USB VID/PID and AAGUID. Open a passkey's details and press **More** to view the
-**Registered as** page. The AAGUID scrolls horizontally; **Info** or **Back** returns
-to the first page. A manually edited identity is labelled **Custom** unless every
-identity field matches a preset. History is descriptive and does not select the
+**Registered as** page. **More** advances through four pages; **Back** returns to
+the previous page, and **Info** on the last page returns to the first. Long values,
+including the AAGUID, scroll horizontally. A manually edited identity is labelled
+**Custom** unless every identity field matches a preset. History is descriptive and does not select the
 active USB/FIDO identity when signing in.
 
 Previously created passkeys show **Not recorded** because their original settings
@@ -70,6 +71,24 @@ cannot be recovered reliably. New registrations capture the identity actually ap
 Existing history is
 preserved across settings changes and credential counter updates. The optional
 history field is stored with the credential, so deletion removes it as well.
+
+### Technical passkey details
+
+Passkey details include **Cryptography** and **Protection** pages:
+
+- **Alg**: ES256 (COSE algorithm `-7`), ECDSA with SHA-256.
+- **Key**: P-256 elliptic curve, 256-bit key size.
+- **Hash**: SHA-256, used by the signing implementation.
+- **Ctr**: the current signature counter from the credential index. This is not a
+  login count; counter reservations can cause jumps after restarting the device.
+- **CP**: the stored credProtect policy (`1`: UV optional, `2`: UV or an allowList,
+  `3`: UV required). UV means user verification. An allowList specifies credential IDs.
+- **HMAC**: whether the credential has hmac-secret material available; this does
+  not mean that a particular site requested or used the extension.
+
+Crypto labels describe ZeroFIDO's fixed ES256/P-256 implementation, independent of
+which identity preset was selected. Protection values come from the loaded
+credential. Unreadable credentials show dashes rather than invented values.
 
 ### CTAP 2.1 browser credential probes
 
