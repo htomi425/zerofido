@@ -20,6 +20,37 @@ U2F and FIDO2.0 pass their respective tests in the current FIDO Conformance Tool
 support is in development behind a developer-only build flag. Bug reports, feature requests, and
 pull requests are welcome.
 
+## Custom identity settings (this fork)
+
+Settings supports editing USB VID, USB PID, AAGUID, manufacturer and product name.
+Values are saved to `apps_data/zerofido/identity.bin` and take effect together after
+closing and reopening the app. The active USB descriptors and AAGUID stay unchanged
+while editing. A save failure leaves the previous identity in place.
+
+- VID/PID: four hexadecimal digits, optionally prefixed with `0x`, from `0001` to `fffe`.
+- AAGUID: a standard UUID such as `2fc0579f-8113-47ea-b116-bb5a8db9202a`.
+- Names: 1–31 printable ASCII characters. Names can be edited independently; unknown
+  VID/PID or AAGUID values do not infer a manufacturer.
+- **Use YubiKey identity** sets `1050:0407`, the UUID above, `Yubico` and `YubiKey`.
+  This is also the default when there is no valid saved identity.
+- **Use ZeroFIDO identity** restores `0483:5741`, the upstream ZeroFIDO AAGUID,
+  `Flipper Devices Inc.` and `U2F Token`.
+
+These settings change USB identification and FIDO identity claims, not the hardware
+or supported USB interfaces. In particular, choosing a composite device PID does not
+add OTP or CCID interfaces. Packed attestation remains local software attestation;
+this fork does not contain genuine Yubico certificates or keys. When packed attestation is next used after restart, local
+attestation certificates with a different AAGUID are regenerated to match the selected
+identity. Existing credentials are retained. Changing identity may affect relying-party
+policy checks. Export certification metadata for the selected identity when needed.
+
+The **Build profiles** workflow runs on every branch push, pull request and manual
+run, builds `usb`, `nfc` and `full` with `ZEROFIDO_DEV_FIDO2_1=1`, and uploads packaged
+FAP files plus checksums. Tagged releases also enable the experimental 2.1 code.
+On the device, set a PIN, then select the experimental FIDO2 2.1 profile in Settings.
+The default runtime profile remains CTAP2.0. CLI builds still require the explicit
+`ZEROFIDO_DEV_FIDO2_1=1` flag to include 2.1 support.
+
 ## Showcase
 
 <table>

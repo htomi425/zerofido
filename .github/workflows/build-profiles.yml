@@ -3,8 +3,7 @@ name: Build profiles
 on:
   push:
     branches:
-      - main
-      - master
+      - "**"
   pull_request:
   workflow_dispatch:
 
@@ -34,7 +33,7 @@ jobs:
       ZEROFIDO_USB_DIAGNOSTICS: "0"
       ZEROFIDO_AUTO_ACCEPT_REQUESTS: "0"
       ZEROFIDO_DEV_SCREENSHOT: "0"
-      ZEROFIDO_DEV_FIDO2_1: "0"
+      ZEROFIDO_DEV_FIDO2_1: "1"
       ZEROFIDO_PACKED_ATTESTATION: "1"
 
     steps:
@@ -54,7 +53,7 @@ jobs:
         run: uv sync --locked
 
       - name: Check release build defaults
-        run: uv run python -m unittest tests.app.test_application_manifest
+        run: uv run python -m unittest tests.app.test_application_manifest tests.app.test_identity
 
       - name: Build profile
         run: uv run python -m ufbt
@@ -67,9 +66,14 @@ jobs:
           --fap dist/zerofido.fap
           --output-fap dist/zerofido-${{ matrix.profile }}-release.fap
 
+      - name: Write checksums
+        run: sha256sum dist/zerofido-${{ matrix.profile }}-release.fap > dist/SHA256SUMS
+
       - name: Upload FAP artifacts
         uses: actions/upload-artifact@v7.0.1
         with:
           name: zerofido-${{ matrix.profile }}-release
           if-no-files-found: error
-          path: dist/zerofido-${{ matrix.profile }}-release.fap
+          path: |
+            dist/zerofido-${{ matrix.profile }}-release.fap
+            dist/SHA256SUMS

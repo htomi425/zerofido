@@ -1,0 +1,36 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <storage/storage.h>
+
+#define ZF_IDENTITY_NAME_SIZE 32U
+#define ZF_IDENTITY_AAGUID_SIZE 16U
+#define ZF_IDENTITY_TEXT_SIZE 37U
+
+typedef enum {
+    ZfIdentityFieldVid = 1,
+    ZfIdentityFieldPid,
+    ZfIdentityFieldAaguid,
+    ZfIdentityFieldManufacturer,
+    ZfIdentityFieldProduct,
+} ZfIdentityField;
+
+typedef struct {
+    uint16_t vid;
+    uint16_t pid;
+    uint8_t aaguid[ZF_IDENTITY_AAGUID_SIZE];
+    char manufacturer[ZF_IDENTITY_NAME_SIZE];
+    char product[ZF_IDENTITY_NAME_SIZE];
+} ZfIdentity;
+
+void zf_identity_defaults(ZfIdentity *identity);
+void zf_identity_original(ZfIdentity *identity);
+void zf_identity_load(Storage *storage, ZfIdentity *identity);
+bool zf_identity_save(Storage *storage, const ZfIdentity *identity);
+void zf_identity_load_active(Storage *storage);
+const ZfIdentity *zf_identity_active(void);
+bool zf_identity_set_text(ZfIdentity *identity, ZfIdentityField field, const char *text);
+void zf_identity_get_text(const ZfIdentity *identity, ZfIdentityField field,
+                          char out[ZF_IDENTITY_TEXT_SIZE]);

@@ -27,6 +27,7 @@
 #endif
 #include "../u2f/adapter.h"
 #include "../zerofido_attestation.h"
+#include "../zerofido_identity.h"
 #include "../zerofido_crypto.h"
 #include "../zerofido_notify.h"
 #include "../zerofido_pin.h"
@@ -176,6 +177,13 @@ static const ZfTransportAdapterOps *zf_app_lifecycle_adapter_for_mode(ZfTranspor
 static void zf_app_lifecycle_load_runtime_config(ZerofidoApp *app) {
     ZfRuntimeConfig runtime_config;
 
+#ifndef ZF_HOST_TEST
+    zf_identity_load_active(app->storage);
+    char identity_text[ZF_IDENTITY_TEXT_SIZE];
+    const ZfIdentity *identity = zf_identity_active();
+    zf_identity_get_text(identity, ZfIdentityFieldAaguid, identity_text);
+    zf_attestation_set_aaguid(identity->aaguid, identity_text);
+#endif
     zf_runtime_config_load(app->storage, &runtime_config);
     zf_runtime_config_apply(app, &runtime_config);
 #if !defined(ZF_USB_ONLY) && !defined(ZF_NFC_ONLY)

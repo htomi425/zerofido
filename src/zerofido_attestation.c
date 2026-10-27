@@ -17,6 +17,8 @@
 
 #include "zerofido_attestation.h"
 
+#include <string.h>
+
 #if ZF_PACKED_ATTESTATION
 #include "attestation/local.h"
 #include "zerofido_crypto.h"
@@ -34,13 +36,14 @@
 #define ZF_ATTESTATION_CERT_KEY_FILE_TYPE "ZeroFIDO FIDO2 Attestation Key File"
 #endif
 
-static const uint8_t zf_attestation_aaguid[ZF_AAGUID_LEN] = {
-    0xb5, 0x1a, 0x97, 0x6a, 0x0b, 0x02, 0x40, 0xaa, 0x9d, 0x8a, 0x36, 0xc8, 0xb9, 0x1b, 0xbd, 0x1a,
+static uint8_t zf_attestation_aaguid[ZF_AAGUID_LEN] = {
+    0x2f, 0xc0, 0x57, 0x9f, 0x81, 0x13, 0x47, 0xea, 0xb1, 0x16, 0xbb, 0x5a, 0x8d, 0xb9, 0x20, 0x2a,
 };
-static const char zf_attestation_aaguid_string[] = "b51a976a-0b02-40aa-9d8a-36c8b91bbd1a";
+static char zf_attestation_aaguid_string[] = "2fc0579f-8113-47ea-b116-bb5a8db9202a";
 static int8_t zf_attestation_consistency_cache = -1;
 #if ZF_PACKED_ATTESTATION
 static size_t zf_attestation_leaf_cert_len_cache = 0;
+static bool zf_attestation_assets_ready = false;
 
 static const uint8_t zf_attestation_local_subject[] = {
     0x30, 0x72, 0x31, 0x0B, 0x30, 0x09, 0x06, 0x03, 0x55, 0x04, 0x06, 0x13, 0x02, 'B',  'G',
@@ -53,12 +56,12 @@ static const uint8_t zf_attestation_local_subject[] = {
     'A',  't',  't',  'e',  's',  't',  'a',  't',  'i',  'o',  'n',
 };
 
-static const uint8_t zf_attestation_local_extensions[] = {
+static uint8_t zf_attestation_local_extensions[] = {
     0x30, 0x41, 0x30, 0x0C, 0x06, 0x03, 0x55, 0x1D, 0x13, 0x01, 0x01, 0xFF, 0x04, 0x02,
     0x30, 0x00, 0x30, 0x0E, 0x06, 0x03, 0x55, 0x1D, 0x0F, 0x01, 0x01, 0xFF, 0x04, 0x04,
     0x03, 0x02, 0x07, 0x80, 0x30, 0x21, 0x06, 0x0B, 0x2B, 0x06, 0x01, 0x04, 0x01, 0x82,
-    0xE5, 0x1C, 0x01, 0x01, 0x04, 0x04, 0x12, 0x04, 0x10, 0xb5, 0x1a, 0x97, 0x6a, 0x0b,
-    0x02, 0x40, 0xaa, 0x9d, 0x8a, 0x36, 0xc8, 0xb9, 0x1b, 0xbd, 0x1a,
+    0xE5, 0x1C, 0x01, 0x01, 0x04, 0x04, 0x12, 0x04, 0x10, 0x2f, 0xc0, 0x57, 0x9f, 0x81,
+    0x13, 0x47, 0xea, 0xb1, 0x16, 0xbb, 0x5a, 0x8d, 0xb9, 0x20, 0x2a,
 };
 
 static const ZfLocalAttestationProfile zf_attestation_local_profile = {
@@ -77,6 +80,17 @@ static const ZfLocalAttestationProfile zf_attestation_local_profile = {
     .identity_len = sizeof(zf_attestation_aaguid),
 };
 #endif
+
+void zf_attestation_set_aaguid(const uint8_t aaguid[ZF_AAGUID_LEN], const char *text) {
+    memcpy(zf_attestation_aaguid, aaguid, ZF_AAGUID_LEN);
+    memcpy(zf_attestation_aaguid_string, text, sizeof(zf_attestation_aaguid_string));
+#if ZF_PACKED_ATTESTATION
+    memcpy(zf_attestation_local_extensions + sizeof(zf_attestation_local_extensions) -
+               ZF_AAGUID_LEN,
+           aaguid, ZF_AAGUID_LEN);
+#endif
+    zf_attestation_reset_consistency_cache();
+}
 
 const uint8_t *zf_attestation_get_aaguid(void) {
     return zf_attestation_aaguid;
@@ -110,8 +124,8 @@ bool zf_attestation_get_leaf_cert_der_len(size_t *out_len) {
 bool zf_attestation_ensure_ready(void) {
     bool ok = false;
 
-    if (zf_attestation_consistency_cache > 0) {
-        return zf_attestation_consistency_cache != 0;
+    if (zf_attestation_assets_ready) {
+        return true;
     }
 
     zf_telemetry_log("attestation ensure before");
@@ -121,7 +135,7 @@ bool zf_attestation_ensure_ready(void) {
         ok = zf_attestation_get_leaf_cert_der_len(&cert_len);
     }
     if (ok) {
-        zf_attestation_consistency_cache = 1;
+        zf_attestation_assets_ready = true;
     }
     zf_telemetry_log(ok ? "attestation ensure after ok" : "attestation ensure after failed");
     return ok;
@@ -244,5 +258,6 @@ void zf_attestation_reset_consistency_cache(void) {
     zf_attestation_consistency_cache = -1;
 #if ZF_PACKED_ATTESTATION
     zf_attestation_leaf_cert_len_cache = 0;
+    zf_attestation_assets_ready = false;
 #endif
 }

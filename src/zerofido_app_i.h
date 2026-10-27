@@ -44,6 +44,7 @@
 #include "zerofido_runtime_config.h"
 #include "zerofido_telemetry.h"
 #include "zerofido_types.h"
+#include "zerofido_identity.h"
 #include "zerofido_ui_format.h"
 
 typedef enum {
@@ -55,7 +56,8 @@ typedef enum {
     ZfViewPinMenu = 5,
     ZfViewPinInput = 6,
     ZfViewPinConfirm = 7,
-    ZfViewCount = 8,
+    ZfViewIdentityInput = 8,
+    ZfViewCount = 9,
 } ZfViewId;
 
 typedef enum {
@@ -149,6 +151,10 @@ typedef struct ZerofidoApp {
     Submenu *settings_menu;
     Submenu *pin_menu;
     TextInput *pin_input_view;
+    TextInput *identity_input_view;
+    ZfIdentity identity_edit;
+    ZfIdentityField identity_field;
+    char identity_input[ZF_IDENTITY_TEXT_SIZE];
     DialogEx *pin_confirm_view;
     View *credential_detail_view;
     DialogEx *approval_view;
