@@ -119,22 +119,62 @@ void zf_identity_get_text(const ZfIdentity *identity, ZfIdentityField field,
     }
 }
 
-void zf_identity_defaults(ZfIdentity *identity) {
+typedef struct {
+    const char *id;
+    const char *name;
+    uint16_t vid;
+    uint16_t pid;
+    const char *aaguid;
+    const char *manufacturer;
+    const char *product;
+} ZfIdentityPreset;
+
+static const ZfIdentityPreset zf_identity_presets[] = {
+#include "identity_presets.inc"
+};
+
+size_t zf_identity_preset_count(void) {
+    return sizeof(zf_identity_presets) / sizeof(zf_identity_presets[0]);
+}
+
+const char *zf_identity_preset_name(size_t index) {
+    return index < zf_identity_preset_count() ? zf_identity_presets[index].name : NULL;
+}
+
+const char *zf_identity_preset_id(size_t index) {
+    return index < zf_identity_preset_count() ? zf_identity_presets[index].id : NULL;
+}
+
+bool zf_identity_preset_apply(size_t index, ZfIdentity *identity) {
+    if (!identity || index >= zf_identity_preset_count())
+        return false;
+    const ZfIdentityPreset *preset = &zf_identity_presets[index];
+    ZfIdentity candidate = {.vid = preset->vid, .pid = preset->pid};
+    if (!zf_identity_set_text(&candidate, ZfIdentityFieldAaguid, preset->aaguid) ||
+        !zf_identity_set_text(&candidate, ZfIdentityFieldManufacturer, preset->manufacturer) ||
+        !zf_identity_set_text(&candidate, ZfIdentityFieldProduct, preset->product) ||
+        !zf_identity_valid(&candidate))
+        return false;
+    *identity = candidate;
+    return true;
+}
+
+static void zf_identity_named_preset(const char *id, ZfIdentity *identity) {
     memset(identity, 0, sizeof(*identity));
-    identity->vid = 0x1050;
-    identity->pid = 0x0407;
-    zf_identity_set_text(identity, ZfIdentityFieldAaguid, "2fc0579f-8113-47ea-b116-bb5a8db9202a");
-    strcpy(identity->manufacturer, "Yubico");
-    strcpy(identity->product, "YubiKey");
+    for (size_t i = 0; i < zf_identity_preset_count(); ++i) {
+        if (strcmp(zf_identity_preset_id(i), id) == 0) {
+            zf_identity_preset_apply(i, identity);
+            return;
+        }
+    }
+}
+
+void zf_identity_defaults(ZfIdentity *identity) {
+    zf_identity_named_preset("yubikey", identity);
 }
 
 void zf_identity_original(ZfIdentity *identity) {
-    zf_identity_defaults(identity);
-    identity->vid = 0x0483;
-    identity->pid = 0x5741;
-    zf_identity_set_text(identity, ZfIdentityFieldAaguid, "b51a976a-0b02-40aa-9d8a-36c8b91bbd1a");
-    strcpy(identity->manufacturer, "Flipper Devices Inc.");
-    strcpy(identity->product, "U2F Token");
+    zf_identity_named_preset("zerofido", identity);
 }
 
 void zf_identity_load(Storage *storage, ZfIdentity *identity) {

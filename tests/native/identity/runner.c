@@ -129,6 +129,26 @@ int main(void) {
     memset(identity.product, 'X', sizeof(identity.product));
     assert(!zf_identity_save(storage, &identity));
     assert(!zf_identity_save(NULL, &identity));
+    /* Every registered preset must remain valid, unique and persistable as the list grows. */
+    assert(zf_identity_preset_count() >= 2U);
+    for (size_t i = 0; i < zf_identity_preset_count(); ++i) {
+        const char *name = zf_identity_preset_name(i);
+        const char *id = zf_identity_preset_id(i);
+        assert(name && strlen(name) > 0U && strlen(name) < ZF_IDENTITY_NAME_SIZE);
+        assert(id && strlen(id) > 0U);
+        for (size_t j = 0; j < i; ++j)
+            assert(strcmp(id, zf_identity_preset_id(j)) != 0);
+        assert(zf_identity_preset_apply(i, &identity));
+        assert(zf_identity_save(storage, &identity));
+        zf_identity_load(storage, &loaded);
+        assert(memcmp(&identity, &loaded, sizeof(identity)) == 0);
+    }
+    before = identity;
+    assert(zf_identity_preset_name(zf_identity_preset_count()) == NULL);
+    assert(zf_identity_preset_id(SIZE_MAX) == NULL);
+    assert(!zf_identity_preset_apply(SIZE_MAX, &identity));
+    assert(!zf_identity_preset_apply(0, NULL));
+    assert(memcmp(&before, &identity, sizeof(identity)) == 0);
     puts("native identity regressions passed");
     return 0;
 }

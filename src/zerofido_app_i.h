@@ -57,7 +57,8 @@ typedef enum {
     ZfViewPinInput = 6,
     ZfViewPinConfirm = 7,
     ZfViewIdentityInput = 8,
-    ZfViewCount = 9,
+    ZfViewIdentityPresets = 9,
+    ZfViewCount = 10,
 } ZfViewId;
 
 typedef enum {
@@ -149,6 +150,8 @@ typedef struct ZerofidoApp {
     View *status_view;
     Submenu *credentials_menu;
     Submenu *settings_menu;
+    Submenu *identity_presets_menu;
+    uint32_t identity_preset_selected_index;
     Submenu *pin_menu;
     TextInput *pin_input_view;
     TextInput *identity_input_view;

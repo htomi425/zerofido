@@ -2,6 +2,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <storage/storage.h>
 
@@ -25,6 +26,11 @@ typedef struct {
     char product[ZF_IDENTITY_NAME_SIZE];
 } ZfIdentity;
 
+/* Menu order comes from identity_presets.inc. Invalid indices leave output unchanged. */
+size_t zf_identity_preset_count(void);
+const char *zf_identity_preset_name(size_t index);
+const char *zf_identity_preset_id(size_t index);
+bool zf_identity_preset_apply(size_t index, ZfIdentity *identity);
 void zf_identity_defaults(ZfIdentity *identity);
 void zf_identity_original(ZfIdentity *identity);
 void zf_identity_load(Storage *storage, ZfIdentity *identity);
