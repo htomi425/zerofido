@@ -408,6 +408,12 @@ The packaged artifact lands at `dist/zerofido-release.fap` by default.
 
 ### GitHub Releases
 
+Both build workflows use Ubuntu 24.04 and the official Flipper Zero 1.5.1 f7 SDK
+(API 88.2). The SDK archive is verified against its pinned SHA-256 before
+installation. Build and Release both run the native protocol and storage
+regressions before building FAPs. When upgrading the SDK, update its URL and
+SHA-256 in both workflows together.
+
 The `Build profiles` workflow verifies every push and pull request. The `Release` workflow
 publishes GitHub Releases from existing `v*` tags.
 

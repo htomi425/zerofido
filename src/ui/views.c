@@ -1393,8 +1393,10 @@ static void zerofido_credential_detail_draw_row(Canvas *canvas, int32_t y, const
                                                 const char *value, FuriString *scroll_line) {
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str(canvas, 4, y, label);
+    /* Reserve the widest label for every row so values share one column. */
+    const int32_t value_x = MAX(30, 4 + (int32_t)canvas_string_width(canvas, "HMAC") + 4);
     canvas_set_font(canvas, FontPrimary);
-    zerofido_draw_auto_scroll_line(canvas, scroll_line, 30, y, 94U, value);
+    zerofido_draw_auto_scroll_line(canvas, scroll_line, value_x, y, 124U - value_x, value);
 }
 
 static void zerofido_credential_detail_draw_callback(Canvas *canvas, void *model) {

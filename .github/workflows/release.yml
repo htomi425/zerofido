@@ -26,7 +26,7 @@ concurrency:
 jobs:
   release:
     name: publish release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       UV_PYTHON: "3.14"
@@ -92,7 +92,21 @@ jobs:
         run: uv sync --locked
 
       - name: Check release build defaults
-        run: uv run python -m unittest tests.app.test_application_manifest
+        run: uv run python -m unittest tests.app.test_application_manifest tests.app.test_identity
+
+      - name: Native protocol and storage regressions
+        run: uv run python tools/run_protocol_regressions.py
+
+      - name: Install pinned Flipper SDK
+        env:
+          SDK_URL: https://update.flipperzero.one/builds/firmware/1.5.1/flipper-z-f7-sdk-1.5.1.zip
+          SDK_SHA256: dfde39df32ba8a9789b26afc1d702579ad8399a1c285770637cfe3287b2e2ffe
+        run: |
+          set -euo pipefail
+          sdk_archive="${RUNNER_TEMP}/flipper-z-f7-sdk-1.5.1.zip"
+          curl --fail --location --retry 3 "${SDK_URL}" --output "${sdk_archive}"
+          printf '%s  %s\n' "${SDK_SHA256}" "${sdk_archive}" | sha256sum --check --strict
+          uv run python -m ufbt update --hw-target=f7 --local "${sdk_archive}"
 
       - name: Build release profiles
         run: |

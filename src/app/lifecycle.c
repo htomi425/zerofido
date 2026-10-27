@@ -72,6 +72,8 @@ static void zf_app_lifecycle_close_records(ZerofidoApp *app) {
         return;
     }
 
+    /* The timer callback can access the UI mutex and dispatcher. */
+    zerofido_notify_deinit(app);
     if (app->approval.done) {
         furi_semaphore_free(app->approval.done);
         app->approval.done = NULL;
@@ -85,7 +87,6 @@ static void zf_app_lifecycle_close_records(ZerofidoApp *app) {
         app->storage = NULL;
     }
     if (app->notifications) {
-        zerofido_notify_deinit(app);
         furi_record_close(RECORD_NOTIFICATION);
         app->notifications = NULL;
     }
@@ -577,6 +578,8 @@ void zf_app_lifecycle_free(ZerofidoApp *app) {
         return;
     }
 
+    /* Stop callbacks before freeing views and the dispatcher they reference. */
+    zerofido_notify_deinit(app);
     ZfCredentialIndexEntry *owned_records = app->store_records_owned ? app->store.records : NULL;
 
     zf_u2f_adapter_deinit(app);
