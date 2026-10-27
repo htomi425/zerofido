@@ -735,3 +735,63 @@ static void mark_pin_token_issued(ZfClientPinState *state) {
     state->pin_token_active = true;
     state->pin_token_issued_at = g_fake_tick;
 }
+
+static void test_identity_apply_reconnects_and_clears_session_secrets(void) {
+    Storage storage = {0};
+    ZerofidoApp app = {0};
+    FuriMutex mutex = {0};
+    ZfIdentity identity, loaded;
+    test_storage_reset();
+    app.storage = &storage;
+    app.ui_mutex = &mutex;
+    app.running = true;
+    app.startup_ok = true;
+    app.startup_complete = true;
+    zf_runtime_config_load_defaults(&app.runtime_config);
+    zf_runtime_config_apply(&app, &app.runtime_config);
+    zf_identity_defaults(&identity);
+    expect(zf_identity_activate(&identity), "activate default identity");
+    expect(zf_identity_save(&storage, &identity), "persist initial identity");
+    expect(zf_app_lifecycle_restart_transport(&app), "start initial transport");
+    size_t starts = g_thread_start_count;
+    app.pin_state.pin_token_active = true;
+    memset(app.pin_state.pin_token, 0xab, sizeof(app.pin_state.pin_token));
+    app.assertion_queue.count = 1;
+    app.maintenance_busy = true;
+    identity.vid = 0x1234;
+    expect(zf_app_lifecycle_set_identity(&app, &storage, &identity) == ZfIdentityApplyBusy,
+           "identity changes must refuse an active maintenance operation");
+    expect(zf_identity_active()->vid == 0x0483, "busy refusal must preserve the live identity");
+    app.maintenance_busy = false;
+    g_storage_fail_write_match = "identity.tmp";
+    expect(zf_app_lifecycle_set_identity(&app, &storage, &identity) == ZfIdentityApplySaveFailed,
+           "failed saves must not disconnect or change identity");
+    expect(g_thread_start_count == starts && g_thread_join_count == 0,
+           "failed saves must leave the original transport running");
+    expect(!app.maintenance_busy, "failed saves must release maintenance gate");
+    g_storage_fail_write_match = NULL;
+    expect(zf_app_lifecycle_set_identity(&app, &storage, &identity) == ZfIdentityApplyOk,
+           "saved identity must be applied without reopening app");
+    expect(g_thread_start_count == starts + 1 && g_thread_join_count == 1,
+           "applying identity must join the old worker before starting a new one");
+    expect(zf_identity_active()->vid == 0x1234, "new worker must see the new identity");
+    expect(!app.pin_state.pin_token_active && app.assertion_queue.count == 0,
+           "reconnect must invalidate old PIN tokens and queued assertions");
+    zf_identity_load(&storage, &loaded);
+    expect(loaded.vid == 0x1234, "reconnected identity must persist across app restarts");
+    starts = g_thread_start_count;
+    expect(zf_app_lifecycle_set_identity(&app, &storage, &identity) == ZfIdentityApplyOk,
+           "saving an unchanged identity must succeed");
+    expect(g_thread_start_count == starts, "unchanged settings must not cause another disconnect");
+    g_thread_alloc_fail = true;
+    identity.vid = 0x4321;
+    expect(zf_app_lifecycle_set_identity(&app, &storage, &identity) == ZfIdentityApplyRestartFailed,
+           "allocation failure must report that reopen is needed");
+    expect(!app.worker_thread && !app.maintenance_busy,
+           "restart failure must leave no stale worker or gate");
+    zf_identity_load(&storage, &loaded);
+    expect(loaded.vid == 0x4321, "restart failure must retain the successfully saved settings");
+    g_thread_alloc_fail = false;
+    zf_identity_defaults(&identity);
+    expect(zf_identity_activate(&identity), "restore default identity after test");
+}

@@ -25,23 +25,6 @@
 #include "../internal.h"
 
 #if ZF_USB_DIAGNOSTICS
-static void zf_pin_usb_diag_hex(Storage *storage, const char *label, const uint8_t *data,
-                                size_t len) {
-    static const char hex_digits[] = "0123456789abcdef";
-    char hex[65];
-    size_t capped = len <= 32U ? len : 32U;
-
-    if (!label || !data) {
-        return;
-    }
-    for (size_t i = 0; i < capped; ++i) {
-        hex[i * 2U] = hex_digits[data[i] >> 4U];
-        hex[i * 2U + 1U] = hex_digits[data[i] & 0x0FU];
-    }
-    hex[capped * 2U] = '\0';
-    zf_usb_diag_logf(storage, "pin auth %s len=%u %s", label, (unsigned)len, hex);
-}
-
 static void zf_pin_usb_diag_status(Storage *storage, const char *stage, uint8_t status) {
     if (!stage) {
         return;
@@ -146,15 +129,16 @@ static void zf_pin_consume_up_tested_permissions(ZfClientPinState *state,
 /*
  * Enforces makeCredential/getAssertion PIN/UV authorization. Verifies token
  * HMAC over clientDataHash using protocol-specific truncation, checks expiry,
- * permission mask, optional RP scoping, and consumes managed UP-tested
- * permissions after successful use.
+ * permission mask and optional RP scoping. Silent up=false credential probes
+ * preserve managed permissions so the browser can follow with a touch request.
  */
 uint8_t zerofido_pin_require_auth(Storage *storage, ZfClientPinState *state, bool uv_requested,
                                   bool has_pin_auth,
                                   const uint8_t client_data_hash[ZF_CLIENT_DATA_HASH_LEN],
                                   const uint8_t *pin_auth, size_t pin_auth_len,
                                   bool has_pin_protocol, uint64_t pin_protocol, const char *rp_id,
-                                  uint64_t required_permissions, bool *uv_verified) {
+                                  uint64_t required_permissions, bool up_requested,
+                                  bool *uv_verified) {
     uint8_t expected[32];
 
     *uv_verified = false;
@@ -225,11 +209,6 @@ uint8_t zerofido_pin_require_auth(Storage *storage, ZfClientPinState *state, boo
 #endif
             return ZF_CTAP_ERR_OTHER;
         }
-#if ZF_USB_DIAGNOSTICS
-        zf_pin_usb_diag_hex(storage, "cdh", client_data_hash, ZF_CLIENT_DATA_HASH_LEN);
-        zf_pin_usb_diag_hex(storage, "got", pin_auth, pin_auth_len);
-        zf_pin_usb_diag_hex(storage, "exp", expected, zf_pin_uv_auth_param_len(pin_protocol));
-#endif
         if (!zf_crypto_constant_time_equal(expected, pin_auth,
                                            zf_pin_uv_auth_param_len(pin_protocol))) {
 #if ZF_USB_DIAGNOSTICS
@@ -284,7 +263,7 @@ uint8_t zerofido_pin_require_auth(Storage *storage, ZfClientPinState *state, boo
 #endif
             return ZF_CTAP_ERR_OTHER;
         }
-        if (state->pin_token_permissions_managed) {
+        if (up_requested && state->pin_token_permissions_managed) {
             zf_pin_consume_up_tested_permissions(state, required_permissions);
         }
         *uv_verified = true;

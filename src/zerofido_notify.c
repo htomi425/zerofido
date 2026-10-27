@@ -26,6 +26,15 @@
 #define ZF_NOTIFY_SUCCESS_MS 350
 #define ZF_NOTIFY_ERROR_MS 500
 
+static const NotificationMessage zf_message_success_delay = {
+    .type = NotificationMessageTypeDelay,
+    .data.delay.length = 20,
+};
+
+static const NotificationSequence zf_sequence_success_vibro = {
+    &message_vibro_on, &zf_message_success_delay, &message_vibro_off, NULL,
+};
+
 static const NotificationSequence zf_sequence_idle_dark = {
     &message_red_0, &message_green_0, &message_blue_0, &message_do_not_reset, NULL,
 };
@@ -173,9 +182,7 @@ void zerofido_notify_success(ZerofidoApp *app) {
     }
 
     zf_notify_prepare_transient(app);
-    if (zf_notify_should_vibrate(app)) {
-        notification_message(app->notifications, &sequence_single_vibro);
-    }
+    notification_message(app->notifications, &zf_sequence_success_vibro);
     notification_message(app->notifications, &sequence_set_green_255);
     zf_notify_arm_clear(app, ZF_NOTIFY_SUCCESS_MS);
 }

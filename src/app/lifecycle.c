@@ -27,9 +27,12 @@
 #endif
 #include "../u2f/adapter.h"
 #include "../zerofido_attestation.h"
+#include "../zerofido_identity.h"
 #include "../zerofido_crypto.h"
 #include "../zerofido_notify.h"
 #include "../zerofido_pin.h"
+#include "../pin/internal.h"
+#include "../ctap/core/assertion_queue.h"
 #include "../zerofido_runtime_config.h"
 #include "../zerofido_store.h"
 #include "../zerofido_telemetry.h"
@@ -69,6 +72,8 @@ static void zf_app_lifecycle_close_records(ZerofidoApp *app) {
         return;
     }
 
+    /* The timer callback can access the UI mutex and dispatcher. */
+    zerofido_notify_deinit(app);
     if (app->approval.done) {
         furi_semaphore_free(app->approval.done);
         app->approval.done = NULL;
@@ -82,7 +87,6 @@ static void zf_app_lifecycle_close_records(ZerofidoApp *app) {
         app->storage = NULL;
     }
     if (app->notifications) {
-        zerofido_notify_deinit(app);
         furi_record_close(RECORD_NOTIFICATION);
         app->notifications = NULL;
     }
@@ -173,9 +177,20 @@ static const ZfTransportAdapterOps *zf_app_lifecycle_adapter_for_mode(ZfTranspor
 }
 #endif
 
+static void zf_app_lifecycle_sync_identity(void) {
+#ifndef ZF_HOST_TEST
+    char text[ZF_IDENTITY_TEXT_SIZE];
+    const ZfIdentity *identity = zf_identity_active();
+    zf_identity_get_text(identity, ZfIdentityFieldAaguid, text);
+    zf_attestation_set_aaguid(identity->aaguid, text);
+#endif
+}
+
 static void zf_app_lifecycle_load_runtime_config(ZerofidoApp *app) {
     ZfRuntimeConfig runtime_config;
 
+    zf_identity_load_active(app->storage);
+    zf_app_lifecycle_sync_identity();
     zf_runtime_config_load(app->storage, &runtime_config);
     zf_runtime_config_apply(app, &runtime_config);
 #if !defined(ZF_USB_ONLY) && !defined(ZF_NFC_ONLY)
@@ -469,6 +484,46 @@ bool zf_app_lifecycle_restart_transport(ZerofidoApp *app) {
     return zf_app_lifecycle_start_worker(app);
 }
 
+ZfIdentityApplyResult zf_app_lifecycle_set_identity(ZerofidoApp *app, Storage *storage,
+                                                    const ZfIdentity *identity) {
+    if (!app || !storage || !identity)
+        return ZfIdentityApplySaveFailed;
+    if (zf_app_lifecycle_startup_pending(app))
+        return ZfIdentityApplyBusy;
+
+    furi_mutex_acquire(app->ui_mutex, FuriWaitForever);
+    bool busy = app->maintenance_busy || app->command_scratch_in_use ||
+                app->approval.state == ZfApprovalPending || !app->startup_ok;
+    if (!busy)
+        app->maintenance_busy = true;
+    furi_mutex_release(app->ui_mutex);
+    if (busy)
+        return ZfIdentityApplyBusy;
+
+    /* Persist before disconnecting; a failed save leaves the live device intact. */
+    bool saved = zf_identity_save(storage, identity);
+    bool changed = saved && memcmp(zf_identity_active(), identity, sizeof(*identity)) != 0;
+    ZfIdentityApplyResult result = saved ? ZfIdentityApplyOk : ZfIdentityApplySaveFailed;
+    if (changed) {
+        zf_app_lifecycle_stop_worker(app);
+        (void)zf_identity_activate(identity); /* already validated by the successful save */
+        zf_app_lifecycle_sync_identity();
+        furi_mutex_acquire(app->ui_mutex, FuriWaitForever);
+        zf_pin_invalidate_token_state(&app->pin_state);
+        zf_ctap_assertion_queue_clear(app);
+        app->transport_connected = false;
+        furi_mutex_release(app->ui_mutex);
+        /* Expose a disconnect before enumerating the new USB identity. */
+        furi_delay_ms(250U);
+    }
+    furi_mutex_acquire(app->ui_mutex, FuriWaitForever);
+    app->maintenance_busy = false;
+    furi_mutex_release(app->ui_mutex);
+    if (changed && !zf_app_lifecycle_restart_transport(app))
+        result = ZfIdentityApplyRestartFailed;
+    return result;
+}
+
 bool zf_app_lifecycle_set_transport_mode(ZerofidoApp *app, Storage *storage, ZfTransportMode mode) {
     ZfRuntimeConfig previous_config;
     ZfRuntimeConfig next_config;
@@ -523,6 +578,8 @@ void zf_app_lifecycle_free(ZerofidoApp *app) {
         return;
     }
 
+    /* Stop callbacks before freeing views and the dispatcher they reference. */
+    zerofido_notify_deinit(app);
     ZfCredentialIndexEntry *owned_records = app->store_records_owned ? app->store.records : NULL;
 
     zf_u2f_adapter_deinit(app);

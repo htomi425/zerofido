@@ -598,7 +598,7 @@ static void test_pin_auth_rejects_expired_pin_token(void) {
            "derive pinAuth for expired token");
 
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
-                                     ZF_PIN_AUTH_LEN, true, 1, NULL, 0,
+                                     ZF_PIN_AUTH_LEN, true, 1, NULL, 0, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_TOKEN_EXPIRED,
            "expired pin token should return PIN_TOKEN_EXPIRED");
     expect(!state.pin_token_active, "expired pin token should be cleared after rejection");
@@ -624,7 +624,7 @@ static void test_pin_auth_protocol2_accepts_full_hmac(void) {
 
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
                                      ZF_PIN_AUTH_MAX_LEN, true, ZF_PIN_PROTOCOL_V2, NULL,
-                                     ZF_PIN_PERMISSION_MC, &uv_verified) == ZF_CTAP_SUCCESS,
+                                     ZF_PIN_PERMISSION_MC, true, &uv_verified) == ZF_CTAP_SUCCESS,
            "protocol 2 pinAuth should accept the full HMAC");
     expect(uv_verified, "protocol 2 pinAuth should set UV");
 }
@@ -649,7 +649,7 @@ static void test_legacy_pin_token_allows_reuse_without_rp_binding(void) {
 
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
                                      ZF_PIN_AUTH_LEN, true, 1, "example.com", ZF_PIN_PERMISSION_MC,
-                                     &uv_verified) == ZF_CTAP_SUCCESS,
+                                     true, &uv_verified) == ZF_CTAP_SUCCESS,
            "legacy getPinToken should authorize the first RP without binding it");
     expect(uv_verified, "successful legacy token authorization should set UV");
     expect(!state.pin_token_permissions_rp_id_set,
@@ -660,7 +660,7 @@ static void test_legacy_pin_token_allows_reuse_without_rp_binding(void) {
     uv_verified = false;
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
                                      ZF_PIN_AUTH_LEN, true, 1, "other.example",
-                                     ZF_PIN_PERMISSION_GA, &uv_verified) == ZF_CTAP_SUCCESS,
+                                     ZF_PIN_PERMISSION_GA, true, &uv_verified) == ZF_CTAP_SUCCESS,
            "CTAP 2.0 legacy token should remain reusable for another RP");
     expect(uv_verified, "successful legacy token reuse should set UV");
 }
@@ -685,7 +685,7 @@ static void test_pin_auth_rejects_missing_required_permission(void) {
 
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
                                      ZF_PIN_AUTH_LEN, true, 1, "example.com", ZF_PIN_PERMISSION_GA,
-                                     &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
+                                     true, &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "pinAuth should reject tokens missing the required permission");
     expect(!uv_verified, "missing permission should not set UV");
 }
@@ -710,7 +710,7 @@ static void test_pin_auth_rejects_scoped_token_for_wrong_rp(void) {
 
     expect(zerofido_pin_require_auth(&storage, &state, false, true, client_data_hash, pin_auth,
                                      ZF_PIN_AUTH_LEN, true, 1, "other.example",
-                                     ZF_PIN_PERMISSION_MC,
+                                     ZF_PIN_PERMISSION_MC, true,
                                      &uv_verified) == ZF_CTAP_ERR_PIN_AUTH_INVALID,
            "pinAuth should reject permission-scoped tokens for a different RP");
     expect(!uv_verified, "wrong RP should not set UV");
@@ -875,4 +875,163 @@ static void test_store_wipe_app_data_clears_credentials_and_pin_state(void) {
     expect(zf_store_count_saved(&reloaded) == 0, "store should be empty after app-data wipe");
     expect(zerofido_pin_init(&storage, &restored), "re-init PIN state after app-data wipe");
     expect(!restored.pin_set, "PIN should be cleared after app-data wipe");
+}
+
+static void test_pin_consent_token_then_get_assertion(void) {
+    Storage storage = {0};
+    ZerofidoApp app = {0};
+    ZfCredentialIndexEntry records[ZF_MAX_CREDENTIALS] = {0}, entry = {0};
+    FuriMutex mutex = {0};
+    uint8_t pin_request[256], token_response[128], request[256], response[512], pin_auth[32];
+    const uint8_t *token = NULL;
+    size_t token_len = 0, response_len = 0;
+    static const uint8_t client_data_hash[32] = {
+        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b,
+        0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
+        0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40,
+    };
+    test_storage_reset();
+    app.storage = &storage;
+    app.ui_mutex = &mutex;
+    app.store.records = records;
+    expect(zerofido_pin_init(&storage, &app.pin_state), "initialize consent-to-assertion flow");
+    expect(zerofido_pin_set_plaintext(&storage, &app.pin_state, "1234") == ZF_CTAP_SUCCESS,
+           "set test PIN");
+    test_enable_fido2_1_experimental(&app);
+    seed_assertion_queue_record(&entry, 0xab, 4);
+    strcpy(entry.rp_id, "example.com");
+    records[0] = entry;
+    app.store.count = 1;
+    expect(zerofido_pin_handle_command(
+               &app, pin_request,
+               encode_client_pin_request_with_permissions(pin_request, sizeof(pin_request), 0x09,
+                                                          app.pin_state.pin_hash, true,
+                                                          ZF_PIN_PERMISSION_GA, "example.com"),
+               token_response, sizeof(token_response), &response_len) == ZF_CTAP_SUCCESS,
+           "PIN consent must issue a getAssertion-scoped token");
+    expect(parse_pin_token_response(token_response, response_len, &token, &token_len) &&
+               token_len == ZF_PIN_TOKEN_LEN,
+           "client must receive the PIN token");
+    /* The harness uses identity AES; derive auth from returned bytes, not private state. */
+    expect(zf_crypto_hmac_sha256(token, token_len, client_data_hash, sizeof(client_data_hash),
+                                 pin_auth),
+           "derive browser authorization from the returned token");
+    size_t size = encode_get_assertion_ctap_request_with_pin_auth(
+        request, sizeof(request), false, false, true, pin_auth, ZF_PIN_AUTH_LEN, true);
+    response_len =
+        zerofido_handle_ctap2(&app, 0x01020304, request, size, response, sizeof(response));
+    expect(response_len > 1 && response[0] == ZF_CTAP_SUCCESS,
+           "GetAssertion after PIN consent must produce a signed assertion");
+    expect(g_approval_request_count == 2,
+           "PIN consent must be followed by authentication approval");
+    expect(!app.maintenance_busy && !app.command_scratch_in_use,
+           "the completed flow must release command ownership");
+}
+
+static size_t encode_browser_assertion_with_presence(uint8_t *out, size_t capacity,
+                                                     uint64_t protocol, bool up,
+                                                     const uint8_t hash[32], const uint8_t *auth,
+                                                     const char *rp_id) {
+    ZfCborEncoder enc;
+    out[0] = ZfCtapeCmdGetAssertion;
+    expect(zf_cbor_encoder_init(&enc, out + 1, capacity - 1) && zf_cbor_encode_map(&enc, 5) &&
+               zf_cbor_encode_uint(&enc, 1) && zf_cbor_encode_text(&enc, rp_id) &&
+               zf_cbor_encode_uint(&enc, 2) && zf_cbor_encode_bytes(&enc, hash, 32) &&
+               zf_cbor_encode_uint(&enc, 5) && zf_cbor_encode_map(&enc, 1) &&
+               zf_cbor_encode_text(&enc, "up") && zf_cbor_encode_bool(&enc, up) &&
+               zf_cbor_encode_uint(&enc, 6) &&
+               zf_cbor_encode_bytes(&enc, auth, zf_pin_protocol_auth_len(protocol)) &&
+               zf_cbor_encode_uint(&enc, 7) && zf_cbor_encode_uint(&enc, protocol),
+           "encode browser assertion with explicit presence option");
+    return zf_cbor_encoder_size(&enc) + 1;
+}
+
+static void run_permission_token_silent_probe_then_touch(uint64_t protocol) {
+    Storage storage = {0};
+    ZerofidoApp app = {0};
+    FuriMutex mutex = {0};
+    ZfCredentialIndexEntry records[ZF_MAX_CREDENTIALS] = {0}, entry = {0};
+    uint8_t request[256], response[512], encrypted_hash[32] = {0}, hash[32] = {0x91}, auth[32];
+    uint8_t x[32] = {0x11}, y[32] = {0x22};
+    const uint8_t *token = NULL;
+    size_t token_len = 0, response_len = 0;
+    ZfCborEncoder enc;
+    test_storage_reset();
+    app.storage = &storage;
+    app.ui_mutex = &mutex;
+    app.store.records = records;
+    expect(zerofido_pin_init(&storage, &app.pin_state), "init browser probe PIN state");
+    expect(zerofido_pin_set_plaintext(&storage, &app.pin_state, "1234") == ZF_CTAP_SUCCESS,
+           "set browser probe PIN");
+    test_enable_fido2_1_experimental(&app);
+    seed_assertion_queue_record(&entry, 0xab, 4);
+    strcpy(entry.rp_id, "example.com");
+    records[0] = entry;
+    app.store.count = 1;
+    size_t prefix = protocol == ZF_PIN_PROTOCOL_V2 ? ZF_PIN_PROTOCOL2_IV_LEN : 0;
+    memcpy(encrypted_hash + prefix, app.pin_state.pin_hash, ZF_PIN_HASH_LEN);
+    expect(zf_cbor_encoder_init(&enc, request, sizeof(request)) && zf_cbor_encode_map(&enc, 6) &&
+               zf_cbor_encode_uint(&enc, 1) && zf_cbor_encode_uint(&enc, protocol) &&
+               zf_cbor_encode_uint(&enc, 2) && zf_cbor_encode_uint(&enc, 0x09) &&
+               zf_cbor_encode_uint(&enc, 3) &&
+               zf_cbor_encode_p256_cose_key(&enc, -25, x, 32, y, 32) &&
+               zf_cbor_encode_uint(&enc, 6) &&
+               zf_cbor_encode_bytes(&enc, encrypted_hash, prefix + ZF_PIN_HASH_LEN) &&
+               zf_cbor_encode_uint(&enc, 9) && zf_cbor_encode_uint(&enc, ZF_PIN_PERMISSION_GA) &&
+               zf_cbor_encode_uint(&enc, 10) && zf_cbor_encode_text(&enc, "example.com"),
+           "encode permission-scoped PIN token request");
+    expect(zerofido_pin_handle_command(&app, request, zf_cbor_encoder_size(&enc), response,
+                                       sizeof(response), &response_len) == ZF_CTAP_SUCCESS &&
+               parse_pin_token_response(response, response_len, &token, &token_len) &&
+               token_len == prefix + ZF_PIN_TOKEN_LEN,
+           "issue browser PIN token after consent");
+    /* The fake AES layer copies plaintext after the protocol-v2 IV. */
+    expect(zf_crypto_hmac_sha256(token + prefix, ZF_PIN_TOKEN_LEN, hash, sizeof(hash), auth),
+           "derive browser authorization from the returned token");
+    size_t size = encode_browser_assertion_with_presence(request, sizeof(request), protocol, false,
+                                                         hash, auth, "example.com");
+    response_len =
+        zerofido_handle_ctap2(&app, 0x01020304, request, size, response, sizeof(response));
+    expect(response_len > 1 && response[0] == ZF_CTAP_SUCCESS, "silent probe must succeed");
+    expect(g_approval_request_count == 1, "silent probe must not request another touch");
+    expect(app.pin_state.pin_token_permissions == ZF_PIN_PERMISSION_GA &&
+               app.pin_state.pin_token_permissions_managed &&
+               app.pin_state.pin_token_permissions_rp_id_set,
+           "silent probe must preserve the scoped GA permission for the next assertion");
+    size = encode_browser_assertion_with_presence(request, sizeof(request), protocol, false, hash,
+                                                  auth, "other.example");
+    response_len =
+        zerofido_handle_ctap2(&app, 0x01020304, request, size, response, sizeof(response));
+    expect(response_len == 1 && response[0] == ZF_CTAP_ERR_PIN_AUTH_INVALID,
+           "preserved token must still reject a different relying party");
+    expect(app.pin_state.pin_token_permissions == ZF_PIN_PERMISSION_GA,
+           "wrong-RP probe must not consume a valid token");
+    auth[0] ^= 1U;
+    size = encode_browser_assertion_with_presence(request, sizeof(request), protocol, false, hash,
+                                                  auth, "example.com");
+    response_len =
+        zerofido_handle_ctap2(&app, 0x01020304, request, size, response, sizeof(response));
+    expect(response_len == 1 && response[0] == ZF_CTAP_ERR_PIN_AUTH_INVALID &&
+               app.pin_state.pin_token_permissions == ZF_PIN_PERMISSION_GA,
+           "silent requests must verify authorization and preserve permissions after a rejected "
+           "forgery");
+    auth[0] ^= 1U;
+    size = encode_browser_assertion_with_presence(request, sizeof(request), protocol, true, hash,
+                                                  auth, "example.com");
+    response_len =
+        zerofido_handle_ctap2(&app, 0x01020304, request, size, response, sizeof(response));
+    expect(response_len > 1 && response[0] == ZF_CTAP_SUCCESS,
+           "touch assertion after the silent probe must succeed with the same token");
+    expect(g_approval_request_count == 2, "real assertion must still require touch approval");
+    expect(app.pin_state.pin_token_permissions == 0, "touch assertion must consume GA permission");
+    response_len =
+        zerofido_handle_ctap2(&app, 0x01020304, request, size, response, sizeof(response));
+    expect(response_len == 1 && response[0] == ZF_CTAP_ERR_PIN_AUTH_INVALID &&
+               g_approval_request_count == 2,
+           "consumed token must reject a subsequent touch assertion before approval");
+}
+
+static void test_permission_token_silent_probe_then_touch(void) {
+    run_permission_token_silent_probe_then_touch(ZF_PIN_PROTOCOL_V1);
+    run_permission_token_silent_probe_then_touch(ZF_PIN_PROTOCOL_V2);
 }

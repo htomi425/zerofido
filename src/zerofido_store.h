@@ -32,7 +32,7 @@ typedef enum {
 
 typedef bool (*ZfStoreCredentialFilter)(const ZfCredentialIndexEntry *entry, const void *context);
 
-#define ZF_STORE_RECORD_IO_SIZE 800
+#define ZF_STORE_RECORD_IO_SIZE 864
 
 /*
  * The store keeps a compact in-memory index and loads full credential records

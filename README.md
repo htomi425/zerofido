@@ -20,6 +20,106 @@ U2F and FIDO2.0 pass their respective tests in the current FIDO Conformance Tool
 support is in development behind a developer-only build flag. Bug reports, feature requests, and
 pull requests are welcome.
 
+## Custom identity settings (this fork)
+
+This version appears as **ZeroFIDO Custom** in the Flipper app launcher.
+
+Settings supports editing USB VID, USB PID, AAGUID, manufacturer and product name.
+Values are saved to `apps_data/zerofido/identity.bin` and applied together after each
+successful edit: the app stops its transport worker, updates the USB descriptors and
+AAGUID, clears transient authorization state, and reconnects USB/NFC automatically.
+An active request blocks changes. A save failure leaves the current connection and
+identity intact; a reconnect failure asks you to reopen the app. Unchanged values
+do not cause a disconnect.
+
+- VID/PID: four hexadecimal digits, optionally prefixed with `0x`, from `0001` to `fffe`.
+- AAGUID: a standard UUID such as `2fc0579f-8113-47ea-b116-bb5a8db9202a`.
+- Names: 1–31 printable ASCII characters. Names can be edited independently; unknown
+  VID/PID or AAGUID values do not infer a manufacturer.
+- **Settings → Presets → YubiKey** sets `1050:0407`, the UUID above, `Yubico` and `YubiKey`.
+- **Settings → Presets → ZeroFIDO** restores `0483:5741`, the upstream ZeroFIDO AAGUID,
+  `Flipper Devices Inc.` and `U2F Token`. This is the default when there is no valid
+  saved identity; existing saved choices are preserved.
+
+These settings change USB identification and FIDO identity claims, not the hardware
+or supported USB interfaces. In particular, choosing a composite device PID does not
+add OTP or CCID interfaces. Packed attestation remains local software attestation;
+this fork does not contain genuine Yubico certificates or keys. When packed attestation is next used after a change, local
+attestation certificates with a different AAGUID are regenerated to match the selected
+identity. Existing credentials are retained. Changing identity may affect relying-party
+policy checks. Export certification metadata for the selected identity when needed.
+
+The **Build profiles** workflow runs on every branch push, pull request and manual
+run, builds `usb`, `nfc` and `full` with `ZEROFIDO_DEV_FIDO2_1=1`, and uploads packaged
+FAP files plus checksums. Tagged releases also enable the experimental 2.1 code.
+On the device, set a PIN, then select the experimental FIDO2 2.1 profile in Settings.
+The default runtime profile remains CTAP2.0. CLI builds still require the explicit
+`ZEROFIDO_DEV_FIDO2_1=1` flag to include 2.1 support.
+
+### Registration history
+
+New passkeys keep a snapshot of the identity active at registration: preset name,
+USB VID/PID and AAGUID. Open a passkey's details and press **More** to view the
+**Registered as** page. **More** advances through four pages; **Back** returns to
+the previous page, and **Info** on the last page returns to the first. Long values,
+including the AAGUID, scroll horizontally. A manually edited identity is labelled
+**Custom** unless every identity field matches a preset. History is descriptive and does not select the
+active USB/FIDO identity when signing in.
+
+Previously created passkeys show **Not recorded** because their original settings
+cannot be recovered reliably. New registrations capture the identity actually applied to the running transport.
+Existing history is
+preserved across settings changes and credential counter updates. The optional
+history field is stored with the credential, so deletion removes it as well.
+
+### Technical passkey details
+
+Passkey details include **Cryptography** and **Protection** pages:
+
+- **Alg**: ES256 (COSE algorithm `-7`), ECDSA with SHA-256.
+- **Key**: P-256 elliptic curve, 256-bit key size.
+- **Hash**: SHA-256, used by the signing implementation.
+- **Ctr**: the current signature counter from the credential index. This is not a
+  login count; counter reservations can cause jumps after restarting the device.
+- **CP**: the stored credProtect policy (`1`: UV optional, `2`: UV or an allowList,
+  `3`: UV required). UV means user verification. An allowList specifies credential IDs.
+- **HMAC**: whether the credential has hmac-secret material available; this does
+  not mean that a particular site requested or used the extension.
+
+Crypto labels describe ZeroFIDO's fixed ES256/P-256 implementation, independent of
+which identity preset was selected. Protection values come from the loaded
+credential. Unreadable credentials show dashes rather than invented values.
+
+### CTAP 2.1 browser credential probes
+
+A browser may send `GetAssertion` with `up=false` to check credentials, then send
+another request with user presence enabled. Silent probes still require valid
+PIN/UV authorization, permissions and RP scoping, but do not consume the token's
+MC/GA permissions. The following touch request consumes managed permissions as
+before. Regression tests cover this sequence with PIN protocols 1 and 2, including
+wrong-RP requests, forged authorization and replay after consumption.
+
+### Diagnosing USB authentication
+
+For a USB request that stops after PIN consent, build with
+`ZEROFIDO_PROFILE=full ZEROFIDO_DEV_FIDO2_1=1 ZEROFIDO_USB_DIAGNOSTICS=1`.
+This app is labelled **ZeroFIDO Custom Debug**. Reproduce once, close the app, and
+copy `apps_data/zerofido/usb_diag.log` from the SD card before launching it again
+(startup clears the log). The log records command/status, permission flags and
+USB transmit progress; it does not record PINs, tokens, authentication parameters
+or private keys. Return to a normal build after diagnosis.
+
+### Adding identity presets
+
+Add an entry to [`src/identity_presets.inc`](src/identity_presets.inc) and rebuild.
+Each entry supplies `id`, `name` (menu label), `vid`, `pid`, `aaguid`, `manufacturer`
+and `product`. Copy an existing entry as a template. IDs must be unique and stable;
+keep `zerofido` because the default/original settings select it by ID.
+List order controls menu order. No UI callbacks, menu IDs or switch cases need changes.
+Names must use 1–31 printable ASCII characters, VID/PID must be `0001`–`fffe`,
+and AAGUID must use standard UUID notation. Identity regression tests check every
+entry for valid values, unique IDs and persistence round trips, including newly added entries.
+
 ## Showcase
 
 <table>
@@ -307,6 +407,18 @@ uv run python host_tools/package_release.py \
 The packaged artifact lands at `dist/zerofido-release.fap` by default.
 
 ### GitHub Releases
+
+Release v0.8.1 includes configurable identity presets, registration identity
+history, passkey technical details, and the FIDO2.1 PIN-token probe fix. The FAP
+metadata format stores only major/minor versions, so its embedded version is 0.8.
+A rare startup OOM after repeated launches remains unresolved; rebooting restores
+operation.
+
+Both build workflows use Ubuntu 24.04 and the official Flipper Zero 1.5.1 f7 SDK
+(API 88.2). The SDK archive is verified against its pinned SHA-256 before
+installation. Build and Release both run the native protocol and storage
+regressions before building FAPs. When upgrading the SDK, update its URL and
+SHA-256 in both workflows together.
 
 The `Build profiles` workflow verifies every push and pull request. The `Release` workflow
 publishes GitHub Releases from existing `v*` tags.

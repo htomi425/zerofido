@@ -24,6 +24,7 @@
 #include "zerofido_types.h"
 
 /* FIDO2 attestation facade backed by local per-device self-attestation assets. */
+void zf_attestation_set_aaguid(const uint8_t aaguid[ZF_AAGUID_LEN], const char *text);
 const uint8_t *zf_attestation_get_aaguid(void);
 const char *zf_attestation_get_aaguid_string(void);
 

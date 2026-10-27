@@ -1289,11 +1289,6 @@ bool furi_hal_usb_set_config(const FuriHalUsbInterface *interface, void *context
     return g_usb_set_config_result;
 }
 
-void zerofido_ui_dispatch_custom_event(ZerofidoApp *app, uint32_t event) {
-    UNUSED(app);
-    UNUSED(event);
-}
-
 void zerofido_ui_set_status(ZerofidoApp *app, const char *status) {
     UNUSED(app);
     if (status) {
@@ -1857,6 +1852,11 @@ void mbedtls_sha256_finish(mbedtls_sha256_context *ctx, unsigned char output[32]
 #include "../../../src/transport/nfc_dispatch.c"
 #include "../../../src/transport/nfc_engine.c"
 #include "../../../src/transport/nfc_worker.c"
+
+void zerofido_ui_dispatch_custom_event(ZerofidoApp *app, ZfCustomEvent event) {
+    UNUSED(app);
+    UNUSED(event);
+}
 
 static size_t test_nfc_requeue_during_ctap2(ZerofidoApp *app, uint8_t *response,
                                             size_t response_capacity) {

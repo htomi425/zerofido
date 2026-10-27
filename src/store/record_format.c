@@ -61,6 +61,7 @@ enum {
     ZfRecordKeyHmacSecretWrapped = 15,
     ZfRecordKeyHmacSecretIv = 16,
     ZfRecordKeyCounterFloor = 17,
+    ZfRecordKeyRegistrationIdentity = 18,
 };
 
 #define ZF_RECORD_HMAC_SECRET_STORAGE_LEN (ZF_HMAC_SECRET_LEN * 2U)
@@ -399,7 +400,7 @@ bool zf_store_record_format_encode(const ZfCredentialRecord *record, uint8_t *ou
         return false;
     }
 
-    size_t pairs = 15;
+    size_t pairs = 15 + (record->registration_identity.known ? 1U : 0U);
     if (record->hmac_secret) {
         pairs += 2;
         if (!zf_record_wrap_hmac_secret(record, hmac_secret_wrapped, hmac_secret_iv)) {
@@ -438,6 +439,17 @@ bool zf_store_record_format_encode(const ZfCredentialRecord *record, uint8_t *ou
         zf_cbor_encode_uint(&enc, effective_cred_protect) &&
         zf_cbor_encode_uint(&enc, ZfRecordKeyCounterFloor) &&
         zf_cbor_encode_bytes(&enc, (const uint8_t *)&counter_floor, sizeof(counter_floor));
+
+    if (ok && record->registration_identity.known) {
+        const ZfRegistrationIdentity *identity = &record->registration_identity;
+        ok = memchr(identity->preset, '\0', sizeof(identity->preset)) != NULL &&
+             identity->preset[0] != '\0' && identity->vid != 0U && identity->vid != 0xffffU &&
+             identity->pid != 0U && identity->pid != 0xffffU &&
+             zf_cbor_encode_uint(&enc, ZfRecordKeyRegistrationIdentity) &&
+             zf_cbor_encode_array(&enc, 4U) && zf_cbor_encode_text(&enc, identity->preset) &&
+             zf_cbor_encode_uint(&enc, identity->vid) && zf_cbor_encode_uint(&enc, identity->pid) &&
+             zf_cbor_encode_bytes(&enc, identity->aaguid, sizeof(identity->aaguid));
+    }
 
     if (ok && record->hmac_secret) {
         ok = zf_cbor_encode_uint(&enc, ZfRecordKeyHmacSecretWrapped) &&
@@ -551,9 +563,28 @@ static bool zf_record_decode_counter(ZfCborCursor *cursor, uint32_t *value) {
     return true;
 }
 
+static bool zf_record_decode_registration_identity(ZfCborCursor *cursor,
+                                                   ZfRegistrationIdentity *identity) {
+    size_t items = 0;
+    uint64_t vid = 0, pid = 0;
+    if (identity->known || !zf_cbor_read_array_start(cursor, &items) || items != 4U ||
+        !zf_record_decode_text(identity->preset, sizeof(identity->preset), cursor) ||
+        identity->preset[0] == '\0' || !zf_cbor_read_uint(cursor, &vid) ||
+        !zf_cbor_read_uint(cursor, &pid) || vid == 0U || vid >= 0xffffU || pid == 0U ||
+        pid >= 0xffffU ||
+        !zf_record_decode_bytes(identity->aaguid, sizeof(identity->aaguid), cursor))
+        return false;
+    identity->vid = (uint16_t)vid;
+    identity->pid = (uint16_t)pid;
+    identity->known = true;
+    return true;
+}
+
 static bool zf_record_decode_field(ZfCborCursor *cursor, uint64_t key, ZfCredentialRecord *record,
                                    uint32_t *version) {
     switch (key) {
+    case ZfRecordKeyRegistrationIdentity:
+        return zf_record_decode_registration_identity(cursor, &record->registration_identity);
     case ZfRecordKeyVersion:
         return zf_record_decode_version(cursor, version);
     case ZfRecordKeyCredentialId:

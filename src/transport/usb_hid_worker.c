@@ -29,8 +29,10 @@
 #include "../u2f/adapter.h"
 #include "../zerofido_app_i.h"
 #include "../zerofido_crypto.h"
+#include "../zerofido_identity.h"
 #include "../zerofido_notify.h"
 #include "../zerofido_telemetry.h"
+#include "../zerofido_usb_diagnostics.h"
 #include "../zerofido_ui.h"
 #include "../zerofido_ui_i.h"
 
@@ -101,17 +103,53 @@ static void zf_transport_event_callback(HidU2fEvent ev, void *context) {
     }
 }
 
+/* Keep firmware-owned descriptors intact so other apps retain their identity. */
+#ifndef ZF_HOST_TEST
+static FuriHalUsbInterface zf_usb_identity;
+static struct usb_device_descriptor zf_usb_device_descriptor;
+typedef struct {
+    uint8_t length;
+    uint8_t type;
+    uint16_t text[ZF_IDENTITY_NAME_SIZE];
+} ZfUsbIdentityString;
+static ZfUsbIdentityString zf_usb_manufacturer;
+static ZfUsbIdentityString zf_usb_product;
+
+static void zf_usb_identity_string(ZfUsbIdentityString *descriptor, const char *text) {
+    size_t length = strlen(text);
+    descriptor->length = (uint8_t)(2U + 2U * length);
+    descriptor->type = USB_DTYPE_STRING;
+    for (size_t i = 0; i < length; ++i)
+        descriptor->text[i] = (uint8_t)text[i];
+}
+#define ZF_USB_INTERFACE (&zf_usb_identity)
+#else
+#define ZF_USB_INTERFACE (&usb_hid_u2f)
+#endif
+
 /* Claims the U2F HID USB interface while remembering what to restore on exit. */
 static bool zf_transport_enable_usb(ZerofidoApp *app) {
     FuriHalUsbInterface *current_usb = NULL;
 
 #ifndef ZF_HOST_TEST
     furi_hal_usb_unlock();
+    if (furi_hal_usb_get_config() != ZF_USB_INTERFACE) {
+        zf_usb_identity = usb_hid_u2f;
+        zf_usb_device_descriptor = *usb_hid_u2f.dev_descr;
+        const ZfIdentity *identity = zf_identity_active();
+        zf_usb_device_descriptor.idVendor = identity->vid;
+        zf_usb_device_descriptor.idProduct = identity->pid;
+        zf_usb_identity_string(&zf_usb_manufacturer, identity->manufacturer);
+        zf_usb_identity_string(&zf_usb_product, identity->product);
+        zf_usb_identity.dev_descr = &zf_usb_device_descriptor;
+        zf_usb_identity.str_manuf_descr = (void *)&zf_usb_manufacturer;
+        zf_usb_identity.str_prod_descr = (void *)&zf_usb_product;
+    }
 #endif
     furi_hal_hid_u2f_set_callback(NULL, NULL);
     current_usb = furi_hal_usb_get_config();
-    app->previous_usb = current_usb == &usb_hid_u2f ? ZF_USB_RESTORE_DEFAULT : current_usb;
-    if (current_usb == &usb_hid_u2f || furi_hal_usb_set_config(&usb_hid_u2f, NULL)) {
+    app->previous_usb = current_usb == ZF_USB_INTERFACE ? ZF_USB_RESTORE_DEFAULT : current_usb;
+    if (current_usb == ZF_USB_INTERFACE || furi_hal_usb_set_config(ZF_USB_INTERFACE, NULL)) {
         return true;
     }
 
@@ -123,7 +161,7 @@ static void zf_transport_restore_usb(ZerofidoApp *app) {
     FuriHalUsbInterface *restore_usb = app->previous_usb;
 
     furi_hal_hid_u2f_set_callback(NULL, NULL);
-    if (!restore_usb && furi_hal_usb_get_config() == &usb_hid_u2f) {
+    if (!restore_usb && furi_hal_usb_get_config() == ZF_USB_INTERFACE) {
         restore_usb = ZF_USB_RESTORE_DEFAULT;
     }
     if (restore_usb) {
@@ -316,8 +354,15 @@ void zf_transport_usb_hid_send_dispatch_result(ZerofidoApp *app,
         return;
     }
 
+#if ZF_USB_DIAGNOSTICS
+    zf_usb_diag_logf(app->storage, "usb tx cmd=%02X bytes=%u connected=%u", response_command,
+                     (unsigned)result->response_len, furi_hal_hid_u2f_is_connected() ? 1U : 0U);
+#endif
     zf_transport_session_send_frames(request->session_id, response_command, result->response,
                                      result->response_len);
+#if ZF_USB_DIAGNOSTICS
+    zf_usb_diag_log(app->storage, "usb tx complete");
+#endif
     zf_app_transport_arena_wipe(app);
 }
 

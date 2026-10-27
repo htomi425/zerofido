@@ -26,6 +26,7 @@
 #include "../transport/adapter.h"
 #include "../zerofido_app_i.h"
 #include "../zerofido_ctap.h"
+#include "../ctap/extensions/cred_protect.h"
 #include "../zerofido_notify.h"
 #include "../zerofido_store.h"
 #include "../zerofido_ui_i.h"
@@ -109,6 +110,12 @@ enum {
     ZfSettingsItemAttestation = 3,
     ZfSettingsItemPin = 4,
     ZfSettingsItemStartupReset = 5,
+    ZfSettingsItemVid = 6,
+    ZfSettingsItemPid = 7,
+    ZfSettingsItemAaguid = 8,
+    ZfSettingsItemManufacturer = 9,
+    ZfSettingsItemProduct = 10,
+    ZfSettingsItemPresets = 11,
 };
 
 enum {
@@ -123,11 +130,27 @@ typedef struct {
     uint8_t store_io[ZF_STORE_RECORD_IO_SIZE];
 } ZfCredentialDisplayScratch;
 
+enum {
+    ZfCredentialPageInfo = 0,
+    ZfCredentialPageIdentity,
+    ZfCredentialPageCrypto,
+    ZfCredentialPageProtection,
+    ZfCredentialPageCount,
+};
+
 typedef struct {
     bool allow_delete;
+    bool credential_available;
     char website[ZF_MAX_RP_ID_LEN];
     char account[ZF_MAX_DISPLAY_NAME_LEN];
     char type[24];
+    uint8_t page;
+    char registered_as[ZF_IDENTITY_NAME_SIZE];
+    char registered_usb[10];
+    char registered_aaguid[ZF_IDENTITY_TEXT_SIZE];
+    char counter[11];
+    char protection[32];
+    bool hmac_secret;
 } ZfCredentialDetailModel;
 
 _Static_assert(sizeof(ZfCredentialDisplayScratch) <= ZF_UI_SCRATCH_SIZE,
@@ -416,7 +439,7 @@ static void zerofido_refresh_settings_menu(ZerofidoApp *app) {
 #endif
     bool startup_reset_available = false;
     uint32_t min_index = ZF_SETTINGS_FIRST_ITEM;
-    uint32_t max_index = ZfSettingsItemPin;
+    uint32_t max_index = ZfSettingsItemPresets;
 
     if (!zerofido_ui_ensure_view(app, ZfViewSettings)) {
         return;
@@ -465,8 +488,26 @@ static void zerofido_refresh_settings_menu(ZerofidoApp *app) {
     if (startup_reset_available) {
         submenu_add_item(app->settings_menu, "Reset app data", ZfSettingsItemStartupReset,
                          zerofido_settings_menu_callback, app);
-        max_index = ZfSettingsItemStartupReset;
     }
+    ZfIdentity identity;
+    char label[64];
+    zf_identity_load(app->storage, &identity);
+    snprintf(label, sizeof(label), "USB VID: %04x", (unsigned)identity.vid);
+    submenu_add_item(app->settings_menu, label, ZfSettingsItemVid, zerofido_settings_menu_callback,
+                     app);
+    snprintf(label, sizeof(label), "USB PID: %04x", (unsigned)identity.pid);
+    submenu_add_item(app->settings_menu, label, ZfSettingsItemPid, zerofido_settings_menu_callback,
+                     app);
+    submenu_add_item(app->settings_menu, "AAGUID", ZfSettingsItemAaguid,
+                     zerofido_settings_menu_callback, app);
+    snprintf(label, sizeof(label), "Maker: %s", identity.manufacturer);
+    submenu_add_item(app->settings_menu, label, ZfSettingsItemManufacturer,
+                     zerofido_settings_menu_callback, app);
+    snprintf(label, sizeof(label), "Product: %s", identity.product);
+    submenu_add_item(app->settings_menu, label, ZfSettingsItemProduct,
+                     zerofido_settings_menu_callback, app);
+    submenu_add_item(app->settings_menu, "Presets", ZfSettingsItemPresets,
+                     zerofido_settings_menu_callback, app);
     if (app->settings_selected_index < min_index || app->settings_selected_index > max_index) {
         app->settings_selected_index = min_index;
     }
@@ -692,10 +733,39 @@ static void zerofido_fill_credential_detail_model(ZerofidoApp *app,
         user = "No account name";
     }
     type = scratch->record.resident_key ? "Discoverable (RK)" : "Saved passkey";
+    model->credential_available = true;
+    snprintf(model->counter, sizeof(model->counter), "%lu", (unsigned long)entry->sign_count);
+    const char *protection = "Unknown";
+    switch (zf_ctap_cred_protect_effective(scratch->record.cred_protect)) {
+    case ZF_CRED_PROTECT_UV_OPTIONAL:
+        protection = "1: UV optional";
+        break;
+    case ZF_CRED_PROTECT_UV_OPTIONAL_WITH_CRED_ID:
+        protection = "2: UV or allowList";
+        break;
+    case ZF_CRED_PROTECT_UV_REQUIRED:
+        protection = "3: UV required";
+        break;
+    }
+    zerofido_copy_label(model->protection, sizeof(model->protection), protection);
+    model->hmac_secret = scratch->record.hmac_secret;
 
     zerofido_copy_label(model->website, sizeof(model->website), website);
     zerofido_copy_label(model->account, sizeof(model->account), user);
     zerofido_copy_label(model->type, sizeof(model->type), type);
+    const ZfRegistrationIdentity *registered = &scratch->record.registration_identity;
+    zerofido_copy_label(model->registered_as, sizeof(model->registered_as),
+                        registered->known ? registered->preset : "Not recorded");
+    if (registered->known) {
+        snprintf(model->registered_usb, sizeof(model->registered_usb), "%04x:%04x",
+                 (unsigned)registered->vid, (unsigned)registered->pid);
+        ZfIdentity historical = {0};
+        memcpy(historical.aaguid, registered->aaguid, sizeof(historical.aaguid));
+        zf_identity_get_text(&historical, ZfIdentityFieldAaguid, model->registered_aaguid);
+    } else {
+        strcpy(model->registered_usb, "-");
+        strcpy(model->registered_aaguid, "-");
+    }
     zerofido_ui_scratch_free(app, scratch, sizeof(*scratch));
     return;
 
@@ -771,6 +841,101 @@ static void zerofido_credentials_menu_callback(void *context, uint32_t index) {
         zf_transport_notify_interaction_changed(app);
         zerofido_ui_dispatch_custom_event(app, ZfEventHideApproval);
     }
+}
+
+static uint32_t zerofido_identity_previous_callback(void *context) {
+    UNUSED(context);
+    return ZfViewSettings;
+}
+
+static bool zerofido_identity_validator(const char *text, FuriString *error, void *context) {
+    ZerofidoApp *app = context;
+    ZfIdentity candidate = app->identity_edit;
+    if (zf_identity_set_text(&candidate, app->identity_field, text))
+        return true;
+    const char *message = "1-31 chars\nPrintable\nASCII";
+    if (app->identity_field == ZfIdentityFieldVid || app->identity_field == ZfIdentityFieldPid)
+        message = "4 hex\ndigits:\n0001-fffe";
+    else if (app->identity_field == ZfIdentityFieldAaguid)
+        message = "UUID:\n8-4-4-4-12\nhex digits";
+    furi_string_set(error, message);
+    return false;
+}
+
+static void zerofido_identity_save_result(ZerofidoApp *app, const ZfIdentity *identity) {
+    ZfIdentityApplyResult result = zf_app_lifecycle_set_identity(app, app->storage, identity);
+    const char *message = "Identity applied";
+    if (result == ZfIdentityApplyBusy)
+        message = "Finish the active request first";
+    else if (result == ZfIdentityApplySaveFailed)
+        message = "Identity save failed";
+    else if (result == ZfIdentityApplyRestartFailed)
+        message = "Saved. Reopen app to reconnect";
+    zerofido_ui_set_status(app, message);
+    if (result != ZfIdentityApplyOk)
+        zerofido_notify_error(app);
+    zerofido_refresh_settings_menu(app);
+    zerofido_ui_refresh_status_line(app);
+}
+
+static void zerofido_identity_preset_callback(void *context, uint32_t index) {
+    ZerofidoApp *app = context;
+    ZfIdentity identity;
+    if (!zf_identity_preset_apply(index, &identity)) {
+        zerofido_ui_set_status(app, "Invalid identity preset");
+        zerofido_notify_error(app);
+        return;
+    }
+    app->identity_preset_selected_index = index;
+    zerofido_identity_save_result(app, &identity);
+    zerofido_ui_switch_to_view(app, ZfViewSettings);
+}
+
+static void zerofido_identity_open_presets(ZerofidoApp *app) {
+    if (!zerofido_ui_ensure_view(app, ZfViewIdentityPresets))
+        return;
+    submenu_reset(app->identity_presets_menu);
+    submenu_set_header(app->identity_presets_menu, "Presets");
+    for (size_t i = 0; i < zf_identity_preset_count(); ++i) {
+        submenu_add_item(app->identity_presets_menu, zf_identity_preset_name(i), (uint32_t)i,
+                         zerofido_identity_preset_callback, app);
+    }
+    if (app->identity_preset_selected_index >= zf_identity_preset_count())
+        app->identity_preset_selected_index = 0;
+    submenu_set_selected_item(app->identity_presets_menu, app->identity_preset_selected_index);
+    zerofido_ui_switch_to_view(app, ZfViewIdentityPresets);
+}
+
+static void zerofido_identity_input_result(void *context) {
+    ZerofidoApp *app = context;
+    if (!zf_identity_set_text(&app->identity_edit, app->identity_field, app->identity_input))
+        return;
+    zerofido_identity_save_result(app, &app->identity_edit);
+    zerofido_ui_switch_to_view(app, ZfViewSettings);
+}
+
+static void zerofido_identity_open_input(ZerofidoApp *app, ZfIdentityField field) {
+    static const char *const headers[] = {"",
+                                          "USB VID (hex)",
+                                          "USB PID (hex)",
+                                          "AAGUID (UUID)",
+                                          "Manufacturer (ASCII)",
+                                          "Product (ASCII)"};
+    if (!zerofido_ui_ensure_view(app, ZfViewIdentityInput))
+        return;
+    zf_identity_load(app->storage, &app->identity_edit);
+    app->identity_field = field;
+    zf_identity_get_text(&app->identity_edit, field, app->identity_input);
+    text_input_reset(app->identity_input_view);
+    text_input_set_header_text(app->identity_input_view, headers[field]);
+    text_input_set_minimum_length(app->identity_input_view, 1U);
+    text_input_set_validator(app->identity_input_view, zerofido_identity_validator, app);
+    size_t capacity = field == ZfIdentityFieldManufacturer || field == ZfIdentityFieldProduct
+                          ? ZF_IDENTITY_NAME_SIZE
+                          : sizeof(app->identity_input);
+    text_input_set_result_callback(app->identity_input_view, zerofido_identity_input_result, app,
+                                   app->identity_input, capacity, false);
+    zerofido_ui_switch_to_view(app, ZfViewIdentityInput);
 }
 
 static void zerofido_settings_menu_callback(void *context, uint32_t index) {
@@ -863,6 +1028,17 @@ static void zerofido_settings_menu_callback(void *context, uint32_t index) {
         break;
     }
 #endif
+    case ZfSettingsItemVid:
+    case ZfSettingsItemPid:
+    case ZfSettingsItemAaguid:
+    case ZfSettingsItemManufacturer:
+    case ZfSettingsItemProduct:
+        zerofido_identity_open_input(
+            app, (ZfIdentityField)(index - ZfSettingsItemVid + ZfIdentityFieldVid));
+        break;
+    case ZfSettingsItemPresets:
+        zerofido_identity_open_presets(app);
+        break;
     case ZfSettingsItemPin:
         zerofido_refresh_pin_menu(app);
         zerofido_ui_switch_to_view(app, ZfViewPinMenu);
@@ -1217,8 +1393,10 @@ static void zerofido_credential_detail_draw_row(Canvas *canvas, int32_t y, const
                                                 const char *value, FuriString *scroll_line) {
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str(canvas, 4, y, label);
+    /* Reserve the widest label for every row so values share one column. */
+    const int32_t value_x = MAX(30, 4 + (int32_t)canvas_string_width(canvas, "HMAC") + 4);
     canvas_set_font(canvas, FontPrimary);
-    zerofido_draw_auto_scroll_line(canvas, scroll_line, 30, y, 94U, value);
+    zerofido_draw_auto_scroll_line(canvas, scroll_line, value_x, y, 124U - value_x, value);
 }
 
 static void zerofido_credential_detail_draw_callback(Canvas *canvas, void *model) {
@@ -1233,19 +1411,59 @@ static void zerofido_credential_detail_draw_callback(Canvas *canvas, void *model
     canvas_clear(canvas);
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str(canvas, 4, 9, "Passkey");
+    static const char *const titles[ZfCredentialPageCount] = {"Passkey", "Registered as",
+                                                              "Cryptography", "Protection"};
+    uint8_t page = detail->page < ZfCredentialPageCount ? detail->page : ZfCredentialPageInfo;
+    canvas_draw_str(canvas, 4, 9, titles[page]);
+    char page_label[8];
+    snprintf(page_label, sizeof(page_label), "%u/%u", (unsigned)page + 1U,
+             (unsigned)ZfCredentialPageCount);
+    canvas_draw_str_aligned(canvas, 124, 9, AlignRight, AlignBottom, page_label);
     canvas_draw_line(canvas, 0, 12, 127, 12);
 
     scroll_line = furi_string_alloc();
-    zerofido_credential_detail_draw_row(canvas, 21, "Web", detail->website, scroll_line);
-    zerofido_credential_detail_draw_row(canvas, 34, "Acct", detail->account, scroll_line);
-    zerofido_credential_detail_draw_row(canvas, 47, "Type", detail->type, scroll_line);
+    switch (page) {
+    case ZfCredentialPageIdentity:
+        zerofido_credential_detail_draw_row(canvas, 21, "As", detail->registered_as, scroll_line);
+        zerofido_credential_detail_draw_row(canvas, 34, "USB", detail->registered_usb, scroll_line);
+        zerofido_credential_detail_draw_row(canvas, 47, "ID", detail->registered_aaguid,
+                                            scroll_line);
+        break;
+    case ZfCredentialPageCrypto:
+        /* All supported credential records use the ES256 / P-256 signing implementation. */
+        zerofido_credential_detail_draw_row(
+            canvas, 21, "Alg", detail->credential_available ? "ES256 (-7)" : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 34, "Key", detail->credential_available ? "P-256 / 256 bit" : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 47, "Hash", detail->credential_available ? "SHA-256" : "-", scroll_line);
+        break;
+    case ZfCredentialPageProtection:
+        zerofido_credential_detail_draw_row(
+            canvas, 21, "Ctr", detail->credential_available ? detail->counter : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 34, "CP", detail->credential_available ? detail->protection : "-", scroll_line);
+        zerofido_credential_detail_draw_row(
+            canvas, 47, "HMAC",
+            !detail->credential_available ? "-"
+                                          : (detail->hmac_secret ? "Available" : "Unavailable"),
+            scroll_line);
+        break;
+    case ZfCredentialPageInfo:
+    default:
+        zerofido_credential_detail_draw_row(canvas, 21, "Web", detail->website, scroll_line);
+        zerofido_credential_detail_draw_row(canvas, 34, "Acct", detail->account, scroll_line);
+        zerofido_credential_detail_draw_row(canvas, 47, "Type", detail->type, scroll_line);
+        break;
+    }
     furi_string_free(scroll_line);
 
+    canvas_set_font(canvas, FontSecondary);
     elements_button_left(canvas, "Back");
     if (detail->allow_delete) {
         elements_button_center(canvas, "Delete");
     }
+    elements_button_right(canvas, page == ZfCredentialPageCount - 1U ? "Info" : "More");
 }
 
 static bool zerofido_credential_detail_input_callback(InputEvent *event, void *context) {
@@ -1255,6 +1473,13 @@ static bool zerofido_credential_detail_input_callback(InputEvent *event, void *c
 
     if (event->type != InputTypeShort) {
         return false;
+    }
+
+    if (event->key == InputKeyRight) {
+        with_view_model(
+            app->credential_detail_view, ZfCredentialDetailModel * model,
+            { model->page = (uint8_t)((model->page + 1U) % ZfCredentialPageCount); }, true);
+        return true;
     }
 
     if (event->key == InputKeyOk) {
@@ -1273,7 +1498,18 @@ static bool zerofido_credential_detail_input_callback(InputEvent *event, void *c
         return true;
     }
 
-    if (event->key == InputKeyLeft) {
+    if (event->key == InputKeyLeft || event->key == InputKeyBack) {
+        bool previous_page = false;
+        with_view_model(
+            app->credential_detail_view, ZfCredentialDetailModel * model,
+            {
+                previous_page = model->page != ZfCredentialPageInfo;
+                if (previous_page)
+                    model->page--;
+            },
+            true);
+        if (previous_page)
+            return true;
         zerofido_ui_refresh_status_line(app);
         zerofido_ui_switch_to_view(app, ZfViewStatus);
         return true;
@@ -1700,6 +1936,18 @@ static void zerofido_ui_free_rare_view(ZerofidoApp *app, ZfViewId view_id) {
             app->pin_menu = NULL;
         }
         break;
+    case ZfViewIdentityPresets:
+        if (app->identity_presets_menu) {
+            submenu_free(app->identity_presets_menu);
+            app->identity_presets_menu = NULL;
+        }
+        break;
+    case ZfViewIdentityInput:
+        if (app->identity_input_view) {
+            text_input_free(app->identity_input_view);
+            app->identity_input_view = NULL;
+        }
+        break;
     case ZfViewPinInput:
         if (app->pin_input_view) {
             text_input_free(app->pin_input_view);
@@ -1730,8 +1978,8 @@ static void zerofido_ui_prune_rare_views(ZerofidoApp *app) {
         return;
     }
     if (!app->approval_view && !app->credential_detail_view && !app->credentials_menu &&
-        !app->pin_confirm_view && !app->pin_input_view && !app->pin_menu && !app->settings_menu &&
-        !app->pin_buffers) {
+        !app->pin_confirm_view && !app->pin_input_view && !app->identity_input_view &&
+        !app->pin_menu && !app->settings_menu && !app->identity_presets_menu && !app->pin_buffers) {
         return;
     }
 
@@ -1744,6 +1992,8 @@ static void zerofido_ui_prune_rare_views(ZerofidoApp *app) {
     }
     zerofido_ui_free_rare_view(app, ZfViewPinConfirm);
     zerofido_ui_free_rare_view(app, ZfViewPinInput);
+    zerofido_ui_free_rare_view(app, ZfViewIdentityInput);
+    zerofido_ui_free_rare_view(app, ZfViewIdentityPresets);
     zerofido_ui_free_rare_view(app, ZfViewPinMenu);
     zerofido_ui_free_rare_view(app, ZfViewSettings);
     zf_telemetry_log("ui prune after");
@@ -1837,6 +2087,28 @@ bool zerofido_ui_ensure_view(ZerofidoApp *app, ZfViewId view_id) {
                                        zerofido_pin_menu_previous_callback);
         }
         return zerofido_ui_register_view(app, ZfViewPinMenu, submenu_get_view(app->pin_menu));
+
+    case ZfViewIdentityPresets:
+        if (!app->identity_presets_menu) {
+            app->identity_presets_menu = submenu_alloc();
+            if (!app->identity_presets_menu)
+                return false;
+            view_set_previous_callback(submenu_get_view(app->identity_presets_menu),
+                                       zerofido_identity_previous_callback);
+        }
+        return zerofido_ui_register_view(app, ZfViewIdentityPresets,
+                                         submenu_get_view(app->identity_presets_menu));
+
+    case ZfViewIdentityInput:
+        if (!app->identity_input_view) {
+            app->identity_input_view = text_input_alloc();
+            if (!app->identity_input_view)
+                return false;
+            view_set_previous_callback(text_input_get_view(app->identity_input_view),
+                                       zerofido_identity_previous_callback);
+        }
+        return zerofido_ui_register_view(app, ZfViewIdentityInput,
+                                         text_input_get_view(app->identity_input_view));
 
     case ZfViewPinInput:
         if (!app->pin_input_view) {
@@ -1943,6 +2215,14 @@ void zerofido_ui_deinit(ZerofidoApp *app) {
     if (app->pin_confirm_view) {
         dialog_ex_free(app->pin_confirm_view);
         app->pin_confirm_view = NULL;
+    }
+    if (app->identity_presets_menu) {
+        submenu_free(app->identity_presets_menu);
+        app->identity_presets_menu = NULL;
+    }
+    if (app->identity_input_view) {
+        text_input_free(app->identity_input_view);
+        app->identity_input_view = NULL;
     }
     if (app->pin_input_view) {
         text_input_free(app->pin_input_view);
