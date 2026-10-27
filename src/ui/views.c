@@ -810,11 +810,11 @@ static bool zerofido_identity_validator(const char *text, FuriString *error, voi
     ZfIdentity candidate = app->identity_edit;
     if (zf_identity_set_text(&candidate, app->identity_field, text))
         return true;
-    const char *message = "Use 1-31 printable ASCII chars";
+    const char *message = "1-31 chars\nPrintable\nASCII";
     if (app->identity_field == ZfIdentityFieldVid || app->identity_field == ZfIdentityFieldPid)
-        message = "Use 4 hex digits (0001-fffe)";
+        message = "4 hex\ndigits:\n0001-fffe";
     else if (app->identity_field == ZfIdentityFieldAaguid)
-        message = "UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx";
+        message = "UUID:\n8-4-4-4-12\nhex digits";
     furi_string_set(error, message);
     return false;
 }
