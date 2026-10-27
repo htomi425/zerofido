@@ -25,10 +25,11 @@ bool zf_local_attestation_get_cert_size(const ZfLocalAttestationProfile *profile
 }
 
 int main(void) {
-    uint8_t original[ZF_AAGUID_LEN] = {
-        0xb5, 0x1a, 0x97, 0x6a, 0x0b, 0x02, 0x40, 0xaa,
-        0x9d, 0x8a, 0x36, 0xc8, 0xb9, 0x1b, 0xbd, 0x1a,
+    uint8_t yubikey[ZF_AAGUID_LEN] = {
+        0x2f, 0xc0, 0x57, 0x9f, 0x81, 0x13, 0x47, 0xea,
+        0xb1, 0x16, 0xbb, 0x5a, 0x8d, 0xb9, 0x20, 0x2a,
     };
+    assert(strcmp(zf_attestation_get_aaguid_string(), "b51a976a-0b02-40aa-9d8a-36c8b91bbd1a") == 0);
     expected = zf_attestation_get_aaguid();
     assert(zf_attestation_validate_consistency());
     /* GetInfo validation must not skip certificate identity checking later. */
@@ -37,10 +38,10 @@ int main(void) {
     assert(zf_attestation_ensure_ready());
     assert(asset_checks == 1);
 
-    zf_attestation_set_aaguid(original, "b51a976a-0b02-40aa-9d8a-36c8b91bbd1a");
-    expected = original;
-    assert(memcmp(zf_attestation_get_aaguid(), original, sizeof(original)) == 0);
-    assert(strcmp(zf_attestation_get_aaguid_string(), "b51a976a-0b02-40aa-9d8a-36c8b91bbd1a") == 0);
+    zf_attestation_set_aaguid(yubikey, "2fc0579f-8113-47ea-b116-bb5a8db9202a");
+    expected = yubikey;
+    assert(memcmp(zf_attestation_get_aaguid(), yubikey, sizeof(yubikey)) == 0);
+    assert(strcmp(zf_attestation_get_aaguid_string(), "2fc0579f-8113-47ea-b116-bb5a8db9202a") == 0);
     assert(zf_attestation_validate_consistency());
     assert(zf_attestation_ensure_ready());
     assert(asset_checks == 2);

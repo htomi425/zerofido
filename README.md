@@ -34,9 +34,9 @@ while editing. A save failure leaves the previous identity in place.
 - Names: 1–31 printable ASCII characters. Names can be edited independently; unknown
   VID/PID or AAGUID values do not infer a manufacturer.
 - **Settings → Presets → YubiKey** sets `1050:0407`, the UUID above, `Yubico` and `YubiKey`.
-  This is also the default when there is no valid saved identity.
 - **Settings → Presets → ZeroFIDO** restores `0483:5741`, the upstream ZeroFIDO AAGUID,
-  `Flipper Devices Inc.` and `U2F Token`.
+  `Flipper Devices Inc.` and `U2F Token`. This is the default when there is no valid
+  saved identity; existing saved choices are preserved.
 
 These settings change USB identification and FIDO identity claims, not the hardware
 or supported USB interfaces. In particular, choosing a composite device PID does not
@@ -58,7 +58,7 @@ The default runtime profile remains CTAP2.0. CLI builds still require the explic
 Add an entry to [`src/identity_presets.inc`](src/identity_presets.inc) and rebuild.
 Each entry supplies `id`, `name` (menu label), `vid`, `pid`, `aaguid`, `manufacturer`
 and `product`. Copy an existing entry as a template. IDs must be unique and stable;
-keep `yubikey` and `zerofido` because the default/original settings select them by ID.
+keep `zerofido` because the default/original settings select it by ID.
 List order controls menu order. No UI callbacks, menu IDs or switch cases need changes.
 Names must use 1–31 printable ASCII characters, VID/PID must be `0001`–`fffe`,
 and AAGUID must use standard UUID notation. Identity regression tests check every

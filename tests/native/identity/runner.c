@@ -47,15 +47,26 @@ bool zf_storage_write_file_atomic(Storage *storage, const char *path, const char
     return true;
 }
 
+static void use_yubikey(ZfIdentity *identity) {
+    for (size_t i = 0; i < zf_identity_preset_count(); ++i) {
+        if (strcmp(zf_identity_preset_id(i), "yubikey") == 0) {
+            assert(zf_identity_preset_apply(i, identity));
+            return;
+        }
+    }
+    assert(false);
+}
+
 int main(void) {
     Storage *storage = (Storage *)&disk;
     ZfIdentity identity, loaded, before;
     char text[ZF_IDENTITY_TEXT_SIZE];
     zf_identity_load(storage, &identity);
-    assert(identity.vid == 0x1050 && identity.pid == 0x0407);
-    assert(strcmp(identity.manufacturer, "Yubico") == 0);
+    assert(identity.vid == 0x0483 && identity.pid == 0x5741);
+    assert(strcmp(identity.manufacturer, "Flipper Devices Inc.") == 0);
+    assert(strcmp(identity.product, "U2F Token") == 0);
     zf_identity_get_text(&identity, ZfIdentityFieldAaguid, text);
-    assert(strcmp(text, "2fc0579f-8113-47ea-b116-bb5a8db9202a") == 0);
+    assert(strcmp(text, "b51a976a-0b02-40aa-9d8a-36c8b91bbd1a") == 0);
 
     assert(zf_identity_set_text(&identity, ZfIdentityFieldVid, "0XABCD"));
     assert(zf_identity_set_text(&identity, ZfIdentityFieldPid, "1234"));
@@ -102,7 +113,7 @@ int main(void) {
     assert(strcmp(zf_identity_active()->product, "U2F Token") == 0);
 
     fail_write = true;
-    zf_identity_defaults(&identity);
+    use_yubikey(&identity);
     assert(!zf_identity_save(storage, &identity));
     zf_identity_load(storage, &loaded);
     assert(loaded.vid == 0x0483); /* previous successful save survives */
@@ -112,20 +123,20 @@ int main(void) {
     assert(zf_identity_save(storage, &identity));
     disk[3] = 2;
     zf_identity_load(storage, &loaded);
-    assert(loaded.vid == 0x1050);
-    zf_identity_original(&identity);
+    assert(loaded.vid == 0x0483);
+    use_yubikey(&identity);
     assert(zf_identity_save(storage, &identity));
     --disk_size;
     zf_identity_load(storage, &loaded);
-    assert(loaded.vid == 0x1050);
+    assert(loaded.vid == 0x0483);
     assert(zf_identity_save(storage, &identity));
     ++disk_size;
     zf_identity_load(storage, &loaded);
-    assert(loaded.vid == 0x1050);
+    assert(loaded.vid == 0x0483);
     assert(zf_identity_save(storage, &identity));
     memset(disk + 24, 'X', ZF_IDENTITY_NAME_SIZE);
     zf_identity_load(storage, &loaded);
-    assert(loaded.vid == 0x1050);
+    assert(loaded.vid == 0x0483);
     memset(identity.product, 'X', sizeof(identity.product));
     assert(!zf_identity_save(storage, &identity));
     assert(!zf_identity_save(NULL, &identity));

@@ -170,7 +170,7 @@ static void zf_identity_named_preset(const char *id, ZfIdentity *identity) {
 }
 
 void zf_identity_defaults(ZfIdentity *identity) {
-    zf_identity_named_preset("yubikey", identity);
+    zf_identity_named_preset("zerofido", identity);
 }
 
 void zf_identity_original(ZfIdentity *identity) {
